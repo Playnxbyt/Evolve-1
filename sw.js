@@ -1,4 +1,4 @@
-const CACHE_NAME = "evolve-app-v1";
+const CACHE_NAME = "evolve-app-v2";
 const assetsToCache = [
   "./index.html",
   "./style.css",
