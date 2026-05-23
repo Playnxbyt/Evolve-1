@@ -1,27 +1,29 @@
-const CACHE_NAME = "evolve-app-v2";
-const assetsToCache = [
-  "./index.html",
-  "./style.css",
-  "./script.js",
-  "./manifest.json"
-  "./icon-192.png",
-  "./icon-512.png"
+const CACHE_NAME = 'evolve-cache-v1';
+const ASSETS_TO_CACHE = [
+    './',
+    './index.html',
+    './script.js',
+    './style.css',
+    './manifest.json',
+    './icon-192.png',
+    './icon-512.png'
 ];
 
-// Install the service worker and cache files
-self.addEventListener("install", installEvent => {
-  installEvent.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(assetsToCache);
-    })
-  );
+// Install the service worker and cache the files
+self.addEventListener('install', (event) => {
+    event.waitUntil(
+        caches.open(CACHE_NAME).then((cache) => {
+            return cache.addAll(ASSETS_TO_CACHE);
+        })
+    );
 });
 
-// Fetch files from cache when offline
-self.addEventListener("fetch", fetchEvent => {
-  fetchEvent.respondWith(
-    caches.match(fetchEvent.request).then(res => {
-      return res || fetch(fetchEvent.request);
-    })
-  );
+// Serve cached content when offline
+self.addEventListener('fetch', (event) => {
+    event.respondWith(
+        caches.match(event.request).then((cachedResponse) => {
+            // Return cached file if found, otherwise fetch from network
+            return cachedResponse || fetch(event.request);
+        })
+    );
 });
