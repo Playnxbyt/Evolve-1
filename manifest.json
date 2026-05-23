@@ -2,7 +2,7 @@
   "name": "Evolve",
   "short_name": "Evolve",
   "description": "Track your fitness, mental, social, and skill goals.",
-  "start_url": "/evolve-app/index.html",
+  "start_url": "/Evolve/",
   "display": "standalone",
   "background_color": "#08060F",
   "theme_color": "#08060F",
