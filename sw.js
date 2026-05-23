@@ -4,6 +4,8 @@ const assetsToCache = [
   "./style.css",
   "./script.js",
   "./manifest.json"
+  "./icon-192.png",
+  "./icon-512.png"
 ];
 
 // Install the service worker and cache files
