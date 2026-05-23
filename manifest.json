@@ -1,0 +1,21 @@
+{
+  "name": "Evolve",
+  "short_name": "Evolve",
+  "description": "Track your fitness, mental, social, and skill goals.",
+  "start_url": "/evolve-app/index.html",
+  "display": "standalone",
+  "background_color": "#08060F",
+  "theme_color": "#08060F",
+  "icons": [
+    {
+      "src": "https://upload.wikimedia.org/wikipedia/commons/4/42/Purple_Circle.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://upload.wikimedia.org/wikipedia/commons/4/42/Purple_Circle.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
