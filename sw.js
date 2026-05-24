@@ -1,29 +1,59 @@
-const CACHE_NAME = 'evolve-cache-v2';
+const CACHE_NAME = 'evolve-cache-v3';
+
 const ASSETS_TO_CACHE = [
-    './',
-    './index.html',
-    './script.js',
-    './style.css',
-    './manifest.json',
-    './Icon-192.png',
-    './icon-512.png'
+  './',
+  './index.html',
+  './style.css',
+  './script.js',
+  './manifest.json',
+  './Icon-192.png',
+  './icon-512.png'
 ];
 
-// Install the service worker and cache the files
+// Install service worker
 self.addEventListener('install', (event) => {
-    event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            return cache.addAll(ASSETS_TO_CACHE);
-        })
-    );
+  self.skipWaiting();
+
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(ASSETS_TO_CACHE);
+    })
+  );
 });
 
-// Serve cached content when offline
-self.addEventListener('fetch', (event) => {
-    event.respondWith(
-        caches.match(event.request).then((cachedResponse) => {
-            // Return cached file if found, otherwise fetch from network
-            return cachedResponse || fetch(event.request);
+// Activate service worker and delete old caches
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cache) => {
+          if (cache !== CACHE_NAME) {
+            return caches.delete(cache);
+          }
         })
-    );
+      );
+    }).then(() => clients.claim())
+  );
+});
+
+// Fetch files
+self.addEventListener('fetch', (event) => {
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        // Clone response
+        const responseClone = response.clone();
+
+        // Store updated file in cache
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseClone);
+        });
+
+        return response;
+      })
+      .catch(() => {
+        // If offline, return cached version
+        return caches.match(event.request);
+      })
+  );
 });
