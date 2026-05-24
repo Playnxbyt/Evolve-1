@@ -60,7 +60,7 @@ const BADGES = [
 ];
 
 const MOOD_LABELS = {good:"Feeling good 🙂",meh:"Feeling okay 😐",bad:"Feeling rough 😞"};
-const MOOD_EMOJI  = {good:"🙂", meh:"😐", bad:"😞", "":""};
+const MOOD_EMOJI  = {good:"😃", meh:"😐", bad:"😞", "":""};
 
 // ── Default state ──────────────────────────────
 let state = {
