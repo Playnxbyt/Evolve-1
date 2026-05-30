@@ -1,4 +1,4 @@
-const CACHE_NAME = 'evolve-cache-v11p';
+const CACHE_NAME = 'evolve-cache-v12p';
 
 const ASSETS_TO_CACHE = [
   './',
