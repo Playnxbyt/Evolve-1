@@ -59,7 +59,7 @@ const BADGES = [
   {id:"century",     label:"Century",     icon:"💯", desc:"100 total goals completed"},
 ];
 
-const MOOD_LABELS = {good:"Feeling good 🙂",meh:"Feeling okay 😐",bad:"Feeling rough 😞"};
+const MOOD_LABELS = {good:"Feeling good 😃",meh:"Feeling okay 😐",bad:"Feeling rough 😞"};
 const MOOD_EMOJI  = {good:"😃", meh:"😐", bad:"😞", "":""};
 
 // ── Default state ──────────────────────────────
