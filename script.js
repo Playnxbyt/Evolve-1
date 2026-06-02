@@ -1,8 +1,7 @@
 /* ═══════════════════════════════════════════════
-   EVOLVE — Upgraded PWA Script (Fixed Date Isolation)
-   Features: XP/Levels, Mood Tracking, Quick-Add FAB,
-   Day-tap Goals, Monthly %, Analytics Dashboard,
-   Particle BG, Badges, Progress Graph
+   EVOLVE — Upgraded PWA Script (Fixed Data Architecture)
+   Features: Persistent Tasks, Date-Isolated History,
+   Hierarchical Monthly Math, Soft Deletes
 ═══════════════════════════════════════════════ */
 
 // ── Sound Engine ───────────────────────────────
@@ -39,7 +38,6 @@ const MONTHS = ["January","February","March","April","May","June","July","August
 const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const QUOTES = ["1% better every day.","Progress, not perfection.","Small steps, big wins.","You got this, legend.","Evolve or repeat.","Consistency beats intensity.","Show up. Always."];
 
-// XP / Level config
 const LEVELS = [
   {min:0,   max:99,   title:"Seedling",    icon:"🌱"},
   {min:100, max:249,  title:"Grinder",     icon:"⚡"},
@@ -62,52 +60,62 @@ const BADGES = [
 const MOOD_LABELS = {good:"Feeling good 😃",meh:"Feeling okay 😐",bad:"Feeling rough 😞"};
 const MOOD_EMOJI  = {good:"😃", meh:"😐", bad:"😞", "":""};
 
-// ── Date helpers ───────────────────────────────
-const today    = new Date();
+// ── Date Helpers ───────────────────────────────
+const today = new Date();
+function getDayTime(y, m, d) { return new Date(y, m, d).getTime(); }
+const todayTime = getDayTime(today.getFullYear(), today.getMonth(), today.getDate());
 const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
 
-// ── Default Isolated State ─────────────────────
+document.getElementById("date-label").textContent = today.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+document.getElementById("tagline").textContent = QUOTES[Math.floor(Math.random()*QUOTES.length)];
+
+// ── Default State Architecture ─────────────────
 let state = {
-  dailyTasks: {}, // Structure: { "YYYY-MM-DD": { fitness: [{id, text, done}], mental: []... } }
+  tasks: [],       // { id, catId, text, createdAt, deletedAt } (Persistent Definitions)
+  completions: {}, // { "YYYY-MM-DD": { "taskId": true } } (Isolated Daily Records)
   expanded: null,
   activeModal: null,
   calMonth: today.getMonth(),
   calYear:  today.getFullYear(),
   xp:       0,
   badges:   [],
-  moodLog:  {},   // dateKey → "good"|"meh"|"bad"
+  moodLog:  {},
   fabOpen:  false,
 };
 
-// Helper to safely initialize and pull a single day's tasks isolated from other dates
-function getTasksForDate(dateKey) {
-  if (!state.dailyTasks) state.dailyTasks = {};
-  if (!state.dailyTasks[dateKey]) {
-    state.dailyTasks[dateKey] = { fitness: [], mental: [], social: [], skills: [] };
-  }
-  return state.dailyTasks[dateKey];
-}
-
-// Load persisted data & transform old format dynamically if it exists
+// ── Data Loading & Migration ───────────────────
 const savedData = localStorage.getItem("evolveAppData");
 if (savedData) {
   try { 
     const parsed = JSON.parse(savedData);
     
-    // Fallback/Migration Logic: If converting from old structure to new date-isolated structure
-    if (parsed.goals && !parsed.dailyTasks) {
-      parsed.dailyTasks = {};
-      // Migrating old active goals straight into today's timeline safely
-      parsed.dailyTasks[todayKey] = { fitness: [], mental: [], social: [], skills: [] };
+    // Automatic Migration: Upgrade old global state to the new Task/Completion split architecture
+    if (parsed.goals && !parsed.tasks) {
+      parsed.tasks = [];
+      parsed.completions = {};
+      parsed.completions[todayKey] = {};
+      
       CATS.forEach(c => {
         if (parsed.goals[c.id]) {
-          parsed.dailyTasks[todayKey][c.id] = parsed.goals[c.id].map(g => ({
-            id: g.id,
-            text: g.text,
-            done: !!(parsed.done && parsed.done[`${c.id}-${g.id}`])
-          }));
+          parsed.goals[c.id].forEach(g => {
+            parsed.tasks.push({
+              id: String(g.id),
+              catId: c.id,
+              text: g.text,
+              createdAt: todayTime, // Start counting from today
+              deletedAt: null
+            });
+            // Carry over today's checkmarks
+            if (parsed.done && parsed.done[`${c.id}-${g.id}`]) {
+              parsed.completions[todayKey][String(g.id)] = true;
+            }
+          });
         }
       });
+      // Erase obsolete architecture keys
+      delete parsed.goals;
+      delete parsed.done;
+      delete parsed.monthData;
     }
     state = {...state, ...parsed}; 
   } catch(e){}
@@ -120,11 +128,6 @@ function saveData() {
 function escapeHTML(str) {
   return str.replace(/[&<>'"]/g, t => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":"&#39;",'"':'&quot;'}[t]));
 }
-
-document.getElementById("date-label").textContent =
-  today.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
-document.getElementById("tagline").textContent =
-  QUOTES[Math.floor(Math.random()*QUOTES.length)];
 
 // ── Live Clock ─────────────────────────────────
 function updateClock() {
@@ -139,45 +142,138 @@ function updateClock() {
 updateClock();
 setInterval(updateClock, 1000);
 
-// ── Contextual Score Metrics (Target Date Aware) ──
-function totalGoals(dateKey = todayKey)   { const day = getTasksForDate(dateKey); return CATS.reduce((s,c)=>s+(day[c.id] || []).length,0); }
-function doneTodayCount(dateKey = todayKey){ const day = getTasksForDate(dateKey); return CATS.reduce((s,c)=>(day[c.id] || []).filter(g=>g.done).length + s, 0); }
-function catDone(catId, dateKey = todayKey) { const day = getTasksForDate(dateKey); return (day[catId] || []).filter(g=>g.done).length; }
-
-function getCatMonthCount(catId) {
-  return Object.keys(state.dailyTasks || {}).reduce((s, k) => {
-    const day = state.dailyTasks[k];
-    return s + ((day && day[catId]) ? day[catId].filter(g => g.done).length : 0);
-  }, 0);
+// ── Core Retrieval Logic ───────────────────────
+// Returns tasks that were active on a specific historic or current date
+function getTasksForDate(y, m, d) {
+  const targetTime = getDayTime(y, m, d);
+  return state.tasks.filter(t => t.createdAt <= targetTime && (!t.deletedAt || t.deletedAt > targetTime));
 }
 
-function getDayScore(y,m,d){ 
-  const k=`${y}-${m}-${d}`; 
-  const day = state.dailyTasks ? state.dailyTasks[k] : null;
-  if(!day) return 0;
-  return CATS.reduce((s,c)=>(day[c.id] || []).filter(g=>g.done).length + s, 0);
+function getActiveTasksToday() {
+  return getTasksForDate(today.getFullYear(), today.getMonth(), today.getDate());
 }
 
-function getAllTimeCompleted(){ 
-  return Object.keys(state.dailyTasks || {}).reduce((s, k) => {
-    const day = state.dailyTasks[k];
-    return s + CATS.reduce((sum, c) => sum + ((day && day[c.id]) ? day[c.id].filter(g => g.done).length : 0), 0);
-  }, 0);
+function getDayScore(y, m, d) {
+  const k = `${y}-${m}-${d}`;
+  const comps = state.completions[k] || {};
+  return Object.values(comps).filter(Boolean).length;
 }
 
-function calcStreak(){
-  let streak=0, d=new Date(today);
-  for(let i=0;i<90;i++){
-    const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    const day = state.dailyTasks ? state.dailyTasks[k] : null;
-    const hasCompletions = day && CATS.some(c => (day[c.id] || []).some(g => g.done));
-    if(hasCompletions){streak++;d.setDate(d.getDate()-1);}
-    else break;
+// ── Hierarchical Analytics Engine ──────────────
+// Strictly calculates % based on (Completions ÷ Possible Active Days)
+function calcMonthStats(y, m) {
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const isCurrentMonth = y === today.getFullYear() && m === today.getMonth();
+  const daysToCount = isCurrentMonth ? today.getDate() : daysInMonth;
+
+  let stats = {
+    total: { done: 0, possible: 0 },
+    cat: {}, // catId -> { done, possible }
+    task: {} // taskId -> { done, possible, text, catId }
+  };
+
+  CATS.forEach(c => stats.cat[c.id] = { done: 0, possible: 0 });
+
+  // Loop through every day in the designated month to map historical context
+  for (let d = 1; d <= daysToCount; d++) {
+    const loopTime = getDayTime(y, m, d);
+    const dateKey = `${y}-${m}-${d}`;
+    const comps = state.completions[dateKey] || {};
+    
+    // Determine which tasks existed on this specific day in the loop
+    const activeOnDay = state.tasks.filter(t => t.createdAt <= loopTime && (!t.deletedAt || t.deletedAt > loopTime));
+
+    activeOnDay.forEach(t => {
+      if (!stats.task[t.id]) stats.task[t.id] = { done: 0, possible: 0, text: t.text, catId: t.catId };
+      
+      // Increment possible denominators
+      stats.task[t.id].possible++;
+      stats.cat[t.catId].possible++;
+      stats.total.possible++;
+
+      // Increment numerators if checked on that day
+      if (comps[t.id]) {
+        stats.task[t.id].done++;
+        stats.cat[t.catId].done++;
+        stats.total.done++;
+      }
+    });
+  }
+
+  // Final Percentage Math
+  stats.total.pct = stats.total.possible > 0 ? Math.round((stats.total.done / stats.total.possible) * 100) : 0;
+  
+  Object.keys(stats.cat).forEach(k => {
+    const c = stats.cat[k];
+    c.pct = c.possible > 0 ? Math.round((c.done / c.possible) * 100) : 0;
+  });
+  
+  Object.keys(stats.task).forEach(k => {
+    const t = stats.task[k];
+    t.pct = t.possible > 0 ? Math.round((t.done / t.possible) * 100) : 0;
+  });
+
+  return stats;
+}
+
+// ── Overall Metric Helpers ─────────────────────
+function calcStreak() {
+  let streak = 0, d = new Date(today);
+  for (let i=0; i<90; i++) {
+    const k = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const comps = state.completions[k] || {};
+    if (Object.values(comps).some(Boolean)) {
+      streak++;
+      d.setDate(d.getDate() - 1);
+    } else {
+      break;
+    }
   }
   return streak;
 }
 
-// ── XP / Level system ──────────────────────────
+function calcCatStreak(catId) {
+  const taskToCat = {};
+  state.tasks.forEach(t => taskToCat[t.id] = t.catId);
+
+  let streak = 0, d = new Date(today);
+  for (let i=0; i<90; i++) {
+    const k = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const comps = state.completions[k] || {};
+    
+    const catWasDone = Object.keys(comps).some(taskId => comps[taskId] && taskToCat[taskId] === catId);
+    if (catWasDone) { 
+      streak++; 
+      d.setDate(d.getDate() - 1); 
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+function getAllTimeCompleted() {
+  let total = 0;
+  Object.values(state.completions).forEach(dayComps => {
+    total += Object.values(dayComps).filter(Boolean).length;
+  });
+  return total;
+}
+
+function getAllTimeCat(catId) {
+  const taskToCat = {};
+  state.tasks.forEach(t => taskToCat[t.id] = t.catId);
+
+  let total = 0;
+  Object.values(state.completions).forEach(dayComps => {
+    Object.keys(dayComps).forEach(taskId => {
+      if (dayComps[taskId] && taskToCat[taskId] === catId) total++;
+    });
+  });
+  return total;
+}
+
+// ── Level & XP System ──────────────────────────
 function getLevelData(xp) {
   for(let i=LEVELS.length-1;i>=0;i--){
     if(xp>=LEVELS[i].min) return {level:i+1,...LEVELS[i]};
@@ -209,12 +305,10 @@ function renderXP() {
   const pct = getXPProgress(state.xp||0);
   const toNext = getXPToNext(state.xp||0);
 
-  // Header badge
   document.getElementById("xp-level").textContent    = `Lv ${ld.level}`;
   document.getElementById("xp-title").textContent    = ld.icon+" "+ld.title;
   document.getElementById("xp-bar-fill").style.width = pct+"%";
 
-  // Stats card
   const lvBig = document.getElementById("xp-level-big");
   const ttBig = document.getElementById("xp-title-big");
   const bfill = document.getElementById("xp-big-fill");
@@ -238,19 +332,25 @@ function showLevelUpToast(ld) {
 function checkBadges() {
   const badges = state.badges || [];
   const streak = calcStreak();
-  const todayTasks = getTasksForDate(todayKey);
-  const allDone = CATS.every(c=>catDone(c.id, todayKey)>0 && (todayTasks[c.id] || []).length>0);
-  const pct     = totalGoals(todayKey)>0?Math.round((doneTodayCount(todayKey)/totalGoals(todayKey))*100):0;
-  const total   = getAllTimeCompleted();
+  const activeToday = getActiveTasksToday();
+  const todayComps = state.completions[todayKey] || {};
+  
+  const allCatsHasTask = CATS.every(c => activeToday.some(t => t.catId === c.id));
+  const allCatsDone = CATS.every(c => activeToday.filter(t => t.catId === c.id).some(t => todayComps[t.id]));
+  
+  const totalActive = activeToday.length;
+  const doneToday = activeToday.filter(t => todayComps[t.id]).length;
+  const isPerfect = totalActive > 0 && doneToday === totalActive;
+  const totalCompletions = getAllTimeCompleted();
 
   const checks = [
-    {id:"first_goal",  cond: doneTodayCount(todayKey)>=1},
-    {id:"streak3",     cond: streak>=3},
-    {id:"streak7",     cond: streak>=7},
-    {id:"streak30",    cond: streak>=30},
-    {id:"all_cats",    cond: allDone},
-    {id:"perfect_day", cond: pct===100&&totalGoals(todayKey)>0},
-    {id:"century",     cond: total>=100},
+    {id:"first_goal",  cond: doneToday >= 1},
+    {id:"streak3",     cond: streak >= 3},
+    {id:"streak7",     cond: streak >= 7},
+    {id:"streak30",    cond: streak >= 30},
+    {id:"all_cats",    cond: allCatsHasTask && allCatsDone},
+    {id:"perfect_day", cond: isPerfect},
+    {id:"century",     cond: totalCompletions >= 100},
   ];
 
   checks.forEach(({id,cond})=>{
@@ -260,7 +360,7 @@ function checkBadges() {
       if(b) showBadgeToast(b);
     }
   });
-  state.badges=badges;
+  state.badges = badges;
   renderBadges();
 }
 
@@ -271,6 +371,15 @@ function showBadgeToast(b) {
   toast.classList.add("show");
   playSound('advancement');
   setTimeout(()=>toast.classList.remove("show"),3500);
+}
+
+function renderBadges() {
+  const row = document.getElementById("badges-row");
+  if(!row) return;
+  row.innerHTML = BADGES.map(b=>{
+    const earned = (state.badges||[]).includes(b.id);
+    return `<div class="badge-chip ${earned?"earned":"locked"}">${b.icon} ${b.label}</div>`;
+  }).join("");
 }
 
 // ── Mood tracking ──────────────────────────────
@@ -314,57 +423,45 @@ function renderMoodHistory() {
   `).join("");
 }
 
-function renderBadges() {
-  const row = document.getElementById("badges-row");
-  if(!row) return;
-  row.innerHTML = BADGES.map(b=>{
-    const earned = (state.badges||[]).includes(b.id);
-    return `<div class="badge-chip ${earned?"earned":"locked"}">${b.icon} ${b.label}</div>`;
+// ── Daily Graph Helper ─────────────────────────
+function getDayPct(y, m, d) {
+  const activeTasks = getTasksForDate(y, m, d);
+  if (activeTasks.length === 0) return 0;
+  
+  const dateKey = `${y}-${m}-${d}`;
+  const comps = state.completions[dateKey] || {};
+  const doneCount = activeTasks.filter(t => comps[t.id]).length;
+  
+  return Math.round((doneCount / activeTasks.length) * 100);
+}
+
+function renderProgressGraph() {
+  const wrap = document.getElementById("progress-graph");
+  const days = document.getElementById("graph-days");
+  if(!wrap||!days) return;
+
+  const data=[];
+  for(let i=6;i>=0;i--){
+    const d=new Date(today);
+    d.setDate(d.getDate()-i);
+    const pct = getDayPct(d.getFullYear(), d.getMonth(), d.getDate());
+    data.push({day:DAY_NAMES[d.getDay()],pct,isToday:i===0});
+  }
+
+  wrap.innerHTML=data.map((item)=>{
+    const h=Math.max(4,item.pct);
+    const isToday=item.isToday;
+    const color=isToday
+      ?`linear-gradient(180deg,#E879F9,#A78BFA)`
+      :item.pct>0?"rgba(167,139,250,0.45)":"rgba(255,255,255,0.07)";
+    const shadow=isToday?"0 0 10px rgba(167,139,250,0.6)":item.pct>0?"0 0 4px rgba(167,139,250,0.2)":"none";
+    return `<div class="graph-bar-wrap">
+      <div class="graph-bar-pct" style="color:${isToday?"#E879F9":"rgba(255,255,255,0.3)"};font-size:9px;text-align:center;margin-bottom:3px;font-family:'DM Mono',monospace;font-weight:700">${item.pct>0?item.pct+"%":""}</div>
+      <div class="graph-bar" style="height:${h}%;background:${color};box-shadow:${shadow}"></div>
+    </div>`;
   }).join("");
-}
 
-// ── Date-Isolated Monthly Metrics ───────────────────────
-function calcMonthlyCompletion(y,m) {
-  const daysInMonth = new Date(y,m+1,0).getDate();
-  const today2 = new Date();
-  const isCurrentMonth = y===today2.getFullYear() && m===today2.getMonth();
-  const daysToCount = isCurrentMonth ? today2.getDate() : daysInMonth;
-
-  let totalPossible = 0;
-  let totalDone = 0;
-
-  for(let d=1; d<=daysToCount; d++){
-    const k = `${y}-${m}-${d}`;
-    const dayTasks = state.dailyTasks ? state.dailyTasks[k] : null;
-    if (dayTasks) {
-      CATS.forEach(c => {
-        const list = dayTasks[c.id] || [];
-        totalPossible += list.length;
-        totalDone += list.filter(g => g.done).length;
-      });
-    }
-  }
-  return totalPossible>0 ? Math.round((totalDone/totalPossible)*100) : 0;
-}
-
-function calcCatMonthlyPct(catId, y, m) {
-  const daysInMonth = new Date(y,m+1,0).getDate();
-  const today2 = new Date();
-  const isCurrentMonth = y===today2.getFullYear() && m===today2.getMonth();
-  const daysToCount = isCurrentMonth ? today2.getDate() : daysInMonth;
-
-  let possible = 0;
-  let done = 0;
-
-  for(let d=1; d<=daysToCount; d++){
-    const k = `${y}-${m}-${d}`;
-    const dayTasks = state.dailyTasks ? state.dailyTasks[k] : null;
-    if (dayTasks && dayTasks[catId]) {
-      possible += dayTasks[catId].length;
-      done += dayTasks[catId].filter(g=>g.done).length;
-    }
-  }
-  return {pct: possible>0 ? Math.round((done/possible)*100) : 0, done, possible};
+  days.innerHTML=data.map(item=>`<div class="graph-day-lbl" style="${item.isToday?"color:#A78BFA;font-weight:800":""}">${item.day}</div>`).join("");
 }
 
 // ── Monthly Line Graph ─────────────────────────
@@ -375,22 +472,21 @@ function renderMonthlyLineGraph() {
   if(!canvas) return;
 
   const y=today.getFullYear(), m=today.getMonth();
-  const daysInMonth=new Date(y,m+1,0).getDate();
-  const daysToShow=today.getDate();
+  const daysInMonth = new Date(y,m+1,0).getDate();
+  const daysToShow = today.getDate();
 
   if(badge) badge.textContent=MONTHS[m]+" "+y;
 
   const pts=[];
-  for(let d=1;d<=daysToShow;d++){
-    const pct=getDayPct(y,m,d);
-    pts.push({d,pct});
+  for(let d=1; d<=daysToShow; d++){
+    pts.push({ d, pct: getDayPct(y, m, d) });
   }
 
   if(footer){
-    const avgPct=pts.length>0?Math.round(pts.reduce((s,p)=>s+p.pct,0)/pts.length):0;
-    const monthPct=calcMonthlyCompletion(y,m);
+    const avgPct = pts.length>0 ? Math.round(pts.reduce((s,p)=>s+p.pct,0)/pts.length) : 0;
+    const mStats = calcMonthStats(y, m);
     footer.innerHTML=`
-      <div class="monthly-stat"><span class="monthly-stat-val" style="color:#A78BFA">${monthPct}%</span><span class="monthly-stat-lbl">Overall</span></div>
+      <div class="monthly-stat"><span class="monthly-stat-val" style="color:#A78BFA">${mStats.total.pct}%</span><span class="monthly-stat-lbl">Overall</span></div>
       <div class="monthly-stat"><span class="monthly-stat-val" style="color:#2DD4BF">${avgPct}%</span><span class="monthly-stat-lbl">Avg/Day</span></div>
       <div class="monthly-stat"><span class="monthly-stat-val" style="color:#FBBF24">${daysToShow}</span><span class="monthly-stat-lbl">Day ${daysToShow}</span></div>
       <div class="monthly-stat"><span class="monthly-stat-val" style="color:#34D399">${daysInMonth}</span><span class="monthly-stat-lbl">in ${MONTHS[m]}</span></div>
@@ -420,7 +516,6 @@ function renderMonthlyLineGraph() {
   const PAD={top:18,right:16,bottom:28,left:34};
   const gW=W-PAD.left-PAD.right;
   const gH=H-PAD.top-PAD.bottom;
-
   const getX=d=>PAD.left+((d-1)/(daysToShow-1||1))*gW;
   const getY=pct=>PAD.top+gH-(pct/100)*gH;
 
@@ -528,57 +623,29 @@ function renderMonthlyLineGraph() {
   if(daysToShow%step!==0) ctx.fillText(daysToShow,getX(daysToShow),H-6);
 }
 
-function getDayPct(y,m,d){
-  const k=`${y}-${m}-${d}`;
-  const total=totalGoals(k);
-  if(total===0) return 0;
-  return Math.min(100,Math.round((doneTodayCount(k)/total)*100));
-}
-
-function renderProgressGraph() {
-  const wrap = document.getElementById("progress-graph");
-  const days = document.getElementById("graph-days");
-  if(!wrap||!days) return;
-
-  const data=[];
-  for(let i=6;i>=0;i--){
-    const d=new Date(today);
-    d.setDate(d.getDate()-i);
-    const pct=getDayPct(d.getFullYear(),d.getMonth(),d.getDate());
-    data.push({day:DAY_NAMES[d.getDay()],pct,isToday:i===0});
-  }
-
-  wrap.innerHTML=data.map((item)=>{
-    const h=Math.max(4,item.pct);
-    const isToday=item.isToday;
-    const color=isToday
-      ?`linear-gradient(180deg,#E879F9,#A78BFA)`
-      :item.pct>0?"rgba(167,139,250,0.45)":"rgba(255,255,255,0.07)";
-    const shadow=isToday?"0 0 10px rgba(167,139,250,0.6)":item.pct>0?"0 0 4px rgba(167,139,250,0.2)":"none";
-    return `<div class="graph-bar-wrap">
-      <div class="graph-bar-pct" style="color:${isToday?"#E879F9":"rgba(255,255,255,0.3)"};font-size:9px;text-align:center;margin-bottom:3px;font-family:'DM Mono',monospace;font-weight:700">${item.pct>0?item.pct+"%":""}</div>
-      <div class="graph-bar" style="height:${h}%;background:${color};box-shadow:${shadow}"></div>
-    </div>`;
-  }).join("");
-
-  days.innerHTML=data.map(item=>`<div class="graph-day-lbl" style="${item.isToday?"color:#A78BFA;font-weight:800":""}">${item.day}</div>`).join("");
-}
-
-// ── Insights (most consistent / weakest) ──────
+// ── Insights ───────────────────────────────────
 function renderInsights() {
-  const sorted=[...CATS].sort((a,b)=>getCatMonthCount(b.id)-getCatMonthCount(a.id));
-  const best=sorted[0],worst=sorted[sorted.length-1];
-  const mc=document.getElementById("most-consistent");
-  const wa=document.getElementById("weakest-area");
-  if(mc) mc.innerHTML=`<span style="color:${best.color}">${best.emoji} ${best.label}</span>`;
-  if(wa) wa.innerHTML=`<span style="color:${worst.color}">${worst.emoji} ${worst.label}</span>`;
+  const mStats = calcMonthStats(today.getFullYear(), today.getMonth());
+  const sorted = [...CATS].sort((a,b) => mStats.cat[b.id].pct - mStats.cat[a.id].pct);
+  
+  const best = sorted[0], worst = sorted[sorted.length-1];
+  const mc = document.getElementById("most-consistent");
+  const wa = document.getElementById("weakest-area");
+  
+  if(mc) mc.innerHTML = `<span style="color:${best.color}">${best.emoji} ${best.label}</span>`;
+  if(wa) wa.innerHTML = `<span style="color:${worst.color}">${worst.emoji} ${worst.label}</span>`;
 }
 
-// ── Render Home Dashboard ───────────────────────
+// ── Dashboard Homepage (Current Day Focus) ─────
 function renderHome() {
-  const total=totalGoals(todayKey), done=doneTodayCount(todayKey);
-  const pct=total>0?Math.round((done/total)*100):0;
-  const circ=2*Math.PI*56;
+  const activeToday = getActiveTasksToday();
+  const comps = state.completions[todayKey] || {};
+  
+  const total = activeToday.length;
+  const done = activeToday.filter(t => comps[t.id]).length;
+  
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const circ = 2 * Math.PI * 56;
 
   document.getElementById("ring-progress").setAttribute("stroke-dasharray",`${(pct/100)*circ} ${circ}`);
   document.getElementById("ring-progress").setAttribute("stroke",pct===100?"#34D399":"url(#rg)");
@@ -589,53 +656,54 @@ function renderHome() {
     done===total&&total>0?"🎉 All done! Incredible!":
     "Keep going, almost there!";
 
-  const streak=calcStreak();
-  document.getElementById("streak-num").textContent=streak;
-  const statsStreak=document.getElementById("stats-streak");
-  if(statsStreak) statsStreak.textContent=streak;
+  const streak = calcStreak();
+  document.getElementById("streak-num").textContent = streak;
+  const statsStreak = document.getElementById("stats-streak");
+  if(statsStreak) statsStreak.textContent = streak;
 
-  // Pills
-  const pills=document.getElementById("cat-pills");
-  pills.innerHTML=CATS.map(c=>{
-    const d=catDone(c.id, todayKey), t=(getTasksForDate(todayKey)[c.id] || []).length;
+  // Render Top Pills
+  const pills = document.getElementById("cat-pills");
+  pills.innerHTML = CATS.map(c => {
+    const catTasks = activeToday.filter(t => t.catId === c.id);
+    const catDone = catTasks.filter(t => comps[t.id]).length;
     return `<div class="cat-pill" style="background:${c.bg};color:${c.color};border-color:${c.color}30">
-      <span>${c.emoji}</span><span>${d}/${t}</span>
+      <span>${c.emoji}</span><span>${catDone}/${catTasks.length}</span>
     </div>`;
   }).join("");
 
-  // Category cards running off isolated todayKey data
-  const list=document.getElementById("cats-list");
-  const todayTasks = getTasksForDate(todayKey);
-  
-  list.innerHTML=CATS.map(cat=>{
-    const catGoals=todayTasks[cat.id] || [];
-    const d=catDone(cat.id, todayKey);
-    const cp=catGoals.length>0?Math.round((d/catGoals.length)*100):0;
-    const isExp=state.expanded===cat.id;
-    const doneBadge=d>0&&d===catGoals.length?`<span class="cat-done-badge" style="background:${cat.color};color:#000">✓ Done</span>`:"";
+  // Render Category Goal Lists
+  const list = document.getElementById("cats-list");
+  list.innerHTML = CATS.map(cat => {
+    const catTasks = activeToday.filter(t => t.catId === cat.id);
+    const d = catTasks.filter(t => comps[t.id]).length;
+    const cp = catTasks.length > 0 ? Math.round((d / catTasks.length) * 100) : 0;
+    const isExp = state.expanded === cat.id;
+    const doneBadge = d > 0 && d === catTasks.length ? `<span class="cat-done-badge" style="background:${cat.color};color:#000">✓ Done</span>` : "";
 
-    const goalsHTML=catGoals.length===0
-      ?`<div class="goal-empty">No goals yet — tap + to add</div>`
-      :catGoals.map((g,i)=>{
-        return `<div class="goal-row fade-up" data-cat="${cat.id}" data-gid="${g.id}" onclick="toggleGoal('${cat.id}','${g.id}')" style="background:${g.done?cat.color+"20":"rgba(255,255,255,0.04)"};border-color:${g.done?cat.color+"60":"rgba(255,255,255,0.07)"};animation-delay:${i*0.05}s">
-          <div class="checkbox" style="border-color:${g.done?cat.color:"rgba(255,255,255,0.2)"};background:${g.done?cat.color:"transparent"}">${g.done?'<span class="check-icon">✓</span>':""}</div>
-          <span class="goal-text" style="color:${g.done?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.88)"};text-decoration:${g.done?"line-through":"none"}">${g.text}</span>
+    const goalsHTML = catTasks.length === 0
+      ? `<div class="goal-empty">No goals yet — tap + to add</div>`
+      : catTasks.map((g, i) => {
+        const isDone = !!comps[g.id];
+        return `<div class="goal-row fade-up" data-cat="${cat.id}" data-gid="${g.id}" onclick="toggleGoal('${cat.id}','${g.id}')" style="background:${isDone?cat.color+"20":"rgba(255,255,255,0.04)"};border-color:${isDone?cat.color+"60":"rgba(255,255,255,0.07)"};animation-delay:${i*0.05}s">
+          <div class="checkbox" style="border-color:${isDone?cat.color:"rgba(255,255,255,0.2)"};background:${isDone?cat.color:"transparent"}">${isDone?'<span class="check-icon">✓</span>':""}</div>
+          <span class="goal-text" style="color:${isDone?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.88)"};text-decoration:${isDone?"line-through":"none"}">${g.text}</span>
           <button class="del-btn" onclick="event.stopPropagation();deleteGoal('${cat.id}','${g.id}')">✕</button>
         </div>`;
       }).join("");
 
-    const allDone = catGoals.length > 0 && d === catGoals.length;
+    const allDone = catTasks.length > 0 && d === catTasks.length;
     const panelStyle = isExp
       ? 'display:flex;flex-direction:column;gap:8px;padding:12px 18px 16px;box-sizing:border-box;border-top:1px solid rgba(255,255,255,0.06);overflow:visible'
       : 'display:none';
+      
     return `<div class="cat-card${allDone?' all-done':''}" data-catid="${cat.id}" style="--cat-glow:${cat.color}66;background:${cat.bg};border:1px solid ${cat.color}28;box-shadow:${isExp?`0 0 28px ${cat.color}35`:"none"}">
       <div class="cat-header" onclick="toggleExpand('${cat.id}')">
         <span class="cat-emoji">${cat.emoji}</span>
         <div class="cat-info">
           <div class="cat-name-row"><span class="cat-name" style="color:${cat.color}">${cat.label}</span>${doneBadge}</div>
-          ${catGoals.length>0?`<div class="cat-bar-wrap"><div class="cat-bar" style="width:${cp}%;background:linear-gradient(90deg,${cat.color}aa,${cat.color})"></div></div>`:""}
+          ${catTasks.length>0?`<div class="cat-bar-wrap"><div class="cat-bar" style="width:${cp}%;background:linear-gradient(90deg,${cat.color}aa,${cat.color})"></div></div>`:""}
         </div>
-        <span class="cat-count" style="color:${cat.color}">${catGoals.length>0?`${d}/${catGoals.length}`:""}</span>
+        <span class="cat-count" style="color:${cat.color}">${catTasks.length>0?`${d}/${catTasks.length}`:""}</span>
         <span class="cat-chevron" style="color:rgba(255,255,255,0.3);font-size:14px;transition:transform 0.38s cubic-bezier(0.4,0,0.2,1);display:inline-block;transform:${isExp?'rotate(90deg)':'rotate(0deg)'};margin-right:2px">›</span>
         <button class="add-btn" style="background:${cat.color}25;border:1.5px solid ${cat.color}55;color:${cat.color}" onclick="event.stopPropagation();openModal('${cat.id}')">+</button>
       </div>
@@ -643,12 +711,14 @@ function renderHome() {
     </div>`;
   }).join("");
 
-  const stg=document.getElementById("stats-total-goals");
-  const stp=document.getElementById("stats-today-pct");
-  if(stg) stg.textContent=total;
+  // Analytics tab summary updates
+  const stg = document.getElementById("stats-total-goals");
+  const stp = document.getElementById("stats-today-pct");
+  if(stg) stg.textContent = total;
+  
   if(stp){
-    const monthPct=calcMonthlyCompletion(today.getFullYear(),today.getMonth());
-    stp.textContent=`${monthPct}%`;
+    const mStats = calcMonthStats(today.getFullYear(), today.getMonth());
+    stp.textContent = `${mStats.total.pct}%`;
   }
 
   renderXP();
@@ -661,28 +731,27 @@ function renderHome() {
   loadMoodUI();
 }
 
+// ── Category Analysis Cards (Analysis Tab) ─────
 function renderCatStats() {
-  const cards=document.getElementById("cat-stat-cards");
+  const cards = document.getElementById("cat-stat-cards");
   if(!cards) return;
-  const y=today.getFullYear(), m=today.getMonth();
-  const todayTasks = getTasksForDate(todayKey);
+  const mStats = calcMonthStats(today.getFullYear(), today.getMonth());
 
-  cards.innerHTML=`<div class="cat-stat-section-label">Category Breakdown</div>`+CATS.map(cat=>{
-    const catGoals=todayTasks[cat.id] || [];
-    const {pct: monthRate, done: mc, possible: maxPossible} = calcCatMonthlyPct(cat.id, y, m);
-    const allTime=getCatMonthCount(cat.id);
-    const streak=calcCatStreak(cat.id);
+  cards.innerHTML = `<div class="cat-stat-section-label">Category Breakdown</div>` + CATS.map(cat => {
+    const cStat = mStats.cat[cat.id];
+    const allTime = getAllTimeCat(cat.id);
+    const streak = calcCatStreak(cat.id);
 
     return `<div class="cat-stat-card" style="background:${cat.bg};border-color:${cat.color}28">
       <div class="cat-stat-header">
         <span class="cat-stat-emoji">${cat.emoji}</span>
         <div style="flex:1">
           <div class="cat-stat-name" style="color:${cat.color}">${cat.label}</div>
-          <div class="cat-stat-sub">${catGoals.length} goal${catGoals.length!==1?"s":""} · ${mc} / ${maxPossible} completions this month</div>
+          <div class="cat-stat-sub">${cStat.done} / ${cStat.possible} completions this month</div>
         </div>
-        <div class="cat-stat-rate-badge" style="background:${cat.color}20;border:1px solid ${cat.color}40;color:${cat.color}">${monthRate}%</div>
+        <div class="cat-stat-rate-badge" style="background:${cat.color}20;border:1px solid ${cat.color}40;color:${cat.color}">${cStat.pct}%</div>
       </div>
-      <div class="cat-stat-bar-track"><div class="cat-stat-bar-fill" style="width:${monthRate}%;background:linear-gradient(90deg,${cat.color}70,${cat.color})"></div></div>
+      <div class="cat-stat-bar-track"><div class="cat-stat-bar-fill" style="width:${cStat.pct}%;background:linear-gradient(90deg,${cat.color}70,${cat.color})"></div></div>
       <div class="cat-stat-2col">
         <div class="cat-stat-cell"><div class="cat-stat-val" style="color:${cat.color}">${allTime}</div><div class="cat-stat-lbl">All-Time</div></div>
         <div class="cat-stat-cell"><div class="cat-stat-val" style="color:${cat.color}">${streak}🔥</div><div class="cat-stat-lbl">Streak</div></div>
@@ -691,15 +760,107 @@ function renderCatStats() {
   }).join("");
 }
 
-function calcCatStreak(catId) {
-  let streak=0, d=new Date(today);
-  for(let i=0;i<90;i++){
-    const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    const day = state.dailyTasks ? state.dailyTasks[k] : null;
-    if(day && (day[catId] || []).some(g=>g.done)){streak++;d.setDate(d.getDate()-1);}
-    else break;
+// ── UI Accordion Interactions ──────────────────
+function toggleExpand(catId) {
+  const wasExpanded = state.expanded === catId;
+  state.expanded = wasExpanded ? null : catId;
+  saveData();
+
+  const card = document.querySelector(`.cat-card[data-catid="${catId}"]`);
+  if (!card) { renderHome(); return; }
+
+  const panel   = card.querySelector('.goals-list');
+  const chevron = card.querySelector('.cat-chevron');
+
+  if (card) {
+    card.style.transition = "transform 0.18s cubic-bezier(0.34,1.56,0.64,1)";
+    card.style.transform  = "scale(0.983)";
+    setTimeout(() => { card.style.transform = "scale(1)"; }, 180);
   }
-  return streak;
+
+  if (wasExpanded) {
+    if (!panel) return;
+    panel.querySelectorAll('.goal-row').forEach(row => {
+      row.style.transition = 'opacity 0.15s ease';
+      row.style.opacity    = '0';
+    });
+
+    panel.style.height     = panel.scrollHeight + 'px';
+    panel.style.overflow   = 'hidden';
+    panel.offsetHeight;    
+
+    panel.style.transition    = 'height 0.36s cubic-bezier(0.4,0,0.2,1), opacity 0.28s ease, padding 0.36s cubic-bezier(0.4,0,0.2,1)';
+    panel.style.height        = '0';
+    panel.style.opacity       = '0';
+    panel.style.paddingTop    = '0';
+    panel.style.paddingBottom = '0';
+
+    if (chevron) chevron.style.transform = 'rotate(0deg)';
+
+    panel.addEventListener('transitionend', () => {
+      panel.style.display = 'none';
+    }, { once: true });
+
+  } else {
+    const cat = CATS.find(c => c.id === catId);
+    const catTasks = getActiveTasksToday().filter(t => t.catId === catId);
+    const comps = state.completions[todayKey] || {};
+
+    const goalsHTML = catTasks.length === 0
+      ? `<div class="goal-empty">No goals yet — tap + to add</div>`
+      : catTasks.map((g, i) => {
+          const isDone = !!comps[g.id];
+          return `<div class="goal-row" data-cat="${catId}" data-gid="${g.id}" onclick="toggleGoal('${catId}','${g.id}')" style="background:${isDone ? cat.color + '20' : 'rgba(255,255,255,0.04)'};border-color:${isDone ? cat.color + '60' : 'rgba(255,255,255,0.07)'}">
+            <div class="checkbox" style="border-color:${isDone ? cat.color : 'rgba(255,255,255,0.2)'};background:${isDone ? cat.color : 'transparent'}">${isDone ? '<span class="check-icon">✓</span>' : ''}</div>
+            <span class="goal-text" style="color:${isDone ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.88)'};text-decoration:${isDone ? 'line-through' : 'none'}">${g.text}</span>
+            <button class="del-btn" onclick="event.stopPropagation();deleteGoal('${catId}','${g.id}')">✕</button>
+          </div>`;
+        }).join('');
+
+    panel.innerHTML  = goalsHTML;
+    panel.style.cssText = [
+      'display:flex',
+      'flex-direction:column',
+      'gap:8px',
+      'height:0',
+      'opacity:0',
+      'overflow:hidden',
+      'padding:0 18px',
+      'box-sizing:border-box',
+      'border-top:1px solid rgba(255,255,255,0.06)',
+    ].join(';');
+
+    panel.querySelectorAll('.goal-row').forEach(row => {
+      row.style.opacity   = '0';
+      row.style.transform = 'translateY(8px)';
+    });
+
+    const PADDING_V = 28;
+    const fullH = panel.scrollHeight + PADDING_V;
+
+    if (chevron) chevron.style.transform = 'rotate(90deg)';
+
+    requestAnimationFrame(() => {
+      panel.style.transition    = 'height 0.4s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease, padding 0.4s cubic-bezier(0.4,0,0.2,1)';
+      panel.style.height        = fullH + 'px';
+      panel.style.opacity       = '1';
+      panel.style.paddingTop    = '12px';
+      panel.style.paddingBottom = '16px';
+
+      panel.querySelectorAll('.goal-row').forEach((row, i) => {
+        setTimeout(() => {
+          row.style.transition = 'opacity 0.25s ease, transform 0.28s cubic-bezier(0.34,1.4,0.64,1)';
+          row.style.opacity    = '1';
+          row.style.transform  = 'translateY(0)';
+        }, 80 + i * 55);
+      });
+
+      panel.addEventListener('transitionend', () => {
+        panel.style.height   = 'auto';
+        panel.style.overflow = 'visible';
+      }, { once: true });
+    });
+  }
 }
 
 function toggleTaskCat(catId) {
@@ -772,7 +933,7 @@ function toggleTaskCat(catId) {
   }
 }
 
-// ── Calendar Heatmap Logic ────────────────────────
+// ── Calendar Heatmap Logic ─────────────────────
 function renderCalendar() {
   const y=state.calYear, m=state.calMonth;
   document.getElementById("month-name").textContent=`${MONTHS[m]} ${y}`;
@@ -784,7 +945,7 @@ function renderCalendar() {
   let html="";
   for(let i=0;i<first;i++) html+=`<div></div>`;
   for(let d=1;d<=days;d++){
-    const score=getDayScore(y,m,d);
+    const score = getDayScore(y,m,d);
     const isToday=d===today.getDate()&&m===today.getMonth()&&y===today.getFullYear();
     const isPast=new Date(y,m,d)<today;
 
@@ -808,58 +969,38 @@ function renderCalendar() {
   }
   grid.innerHTML=html;
 
-  const pct=calcMonthlyCompletion(y,m);
+  // Utilize the strict hierarchical calc engine for calendar view metrics
+  const mStats = calcMonthStats(y, m);
+  
   const pctEl=document.getElementById("month-pct-num");
   const fillEl=document.getElementById("month-pct-fill");
-  if(pctEl) pctEl.textContent=`${pct}%`;
-  if(fillEl) fillEl.style.width=`${pct}%`;
+  if(pctEl) pctEl.textContent=`${mStats.total.pct}%`;
+  if(fillEl) fillEl.style.width=`${mStats.total.pct}%`;
 
   const taskStats=document.getElementById("task-month-stats");
   if(taskStats){
-    // Determine context goals based on checking days dynamically
-    let historicalMonthGoalsMap = {};
-    for (let d = 1; d <= days; d++) {
-      const targetDayTasks = getTasksForDate(`${y}-${m}-${d}`);
-      CATS.forEach(c => {
-        if (!historicalMonthGoalsMap[c.id]) historicalMonthGoalsMap[c.id] = new Set();
-        (targetDayTasks[c.id] || []).forEach(g => historicalMonthGoalsMap[c.id].add(g.text));
-      });
-    }
-
-    const hasAnyGoals=CATS.some(c=>historicalMonthGoalsMap[c.id] && historicalMonthGoalsMap[c.id].size > 0);
-    if(!hasAnyGoals){
-      taskStats.innerHTML=`<div style="text-align:center;padding:20px;color:rgba(255,255,255,0.2);font-size:13px">No goals found for this month</div>`;
+    if (Object.keys(mStats.task).length === 0) {
+      taskStats.innerHTML=`<div style="text-align:center;padding:20px;color:rgba(255,255,255,0.2);font-size:13px">No historical goals found for this month</div>`;
     } else {
       taskStats.innerHTML=`<div class="task-month-header">Goal Completion This Month</div>`+
-        CATS.map(cat=>{
-          const structuralUniqueTexts = Array.from(historicalMonthGoalsMap[cat.id] || []);
-          if(structuralUniqueTexts.length===0) return "";
+        CATS.map(cat => {
+          const catTasks = Object.values(mStats.task).filter(t => t.catId === cat.id);
+          if (catTasks.length === 0) return "";
+          
+          const catPct = mStats.cat[cat.id].pct;
+          const expandId = `cat-expand-${cat.id}`;
 
-          const {pct: catPct} = calcCatMonthlyPct(cat.id, y, m);
-          const expandId=`cat-expand-${cat.id}`;
-
-          const goalRows=structuralUniqueTexts.map(textKey=>{
-            let gPossible = 0;
-            let gDone = 0;
-            for(let d=1; d<=days; d++){
-              const dTasks = getTasksForDate(`${y}-${m}-${d}`)[cat.id] || [];
-              const foundG = dTasks.find(g => g.text === textKey);
-              if(foundG) {
-                gPossible++;
-                if(foundG.done) gDone++;
-              }
-            }
-            const gPct = gPossible > 0 ? Math.round((gDone / gPossible) * 100) : 0;
+          const goalRows = catTasks.map(t => {
             return `<div class="task-goal-row">
               <div class="task-goal-left">
                 <div class="task-goal-dot" style="background:${cat.color}"></div>
-                <span class="task-goal-text">${textKey}</span>
+                <span class="task-goal-text">${t.text}</span>
               </div>
               <div class="task-goal-right">
-                <span class="task-goal-frac" style="color:rgba(255,255,255,0.35)">${gDone}/${gPossible}</span>
-                <span class="task-goal-pct" style="color:${cat.color}">${gPct}%</span>
+                <span class="task-goal-frac" style="color:rgba(255,255,255,0.35)">${t.done}/${t.possible}</span>
+                <span class="task-goal-pct" style="color:${cat.color}">${t.pct}%</span>
               </div>
-              <div class="task-goal-bar-track"><div class="task-goal-bar-fill" style="width:${gPct}%;background:${cat.color}80"></div></div>
+              <div class="task-goal-bar-track"><div class="task-goal-bar-fill" style="width:${t.pct}%;background:${cat.color}80"></div></div>
             </div>`;
           }).join("");
 
@@ -868,7 +1009,7 @@ function renderCalendar() {
               <span class="task-month-emoji">${cat.emoji}</span>
               <div style="flex:1">
                 <div class="task-month-cat-name" style="color:${cat.color}">${cat.label}</div>
-                <div class="task-month-cat-sub">${structuralUniqueTexts.length} unique goal${structuralUniqueTexts.length!==1?"s":""}</div>
+                <div class="task-month-cat-sub">${catTasks.length} tracked item${catTasks.length!==1?"s":""}</div>
               </div>
               <div style="display:flex;align-items:center;gap:8px">
                 <span class="task-month-pct" style="color:${cat.color}">${catPct}%</span>
@@ -882,52 +1023,51 @@ function renderCalendar() {
     }
   }
 
-  const maxCount=Math.max(...CATS.map(c=>getCatMonthCount(c.id)),1);
-  document.getElementById("cat-bars").innerHTML=CATS.map(cat=>{
-    const cnt=getCatMonthCount(cat.id);
+  const catCounts = CATS.map(c => ({ id: c.id, ...c, cnt: getAllTimeCat(c.id) }));
+  const maxCount = Math.max(1, ...catCounts.map(c => c.cnt));
+  
+  document.getElementById("cat-bars").innerHTML = catCounts.map(cat => {
     return `<div class="cat-bar-card" style="background:${cat.bg};border:1px solid ${cat.color}22">
-      <div class="cat-bar-row"><span class="cat-bar-name">${cat.emoji} ${cat.label}</span><span class="cat-bar-count" style="color:${cat.color}">${cnt}</span></div>
-      <div class="bar-track"><div class="bar-fill" style="width:${(cnt/maxCount)*100}%;background:linear-gradient(90deg,${cat.color}88,${cat.color})"></div></div>
+      <div class="cat-bar-row"><span class="cat-bar-name">${cat.emoji} ${cat.label}</span><span class="cat-bar-count" style="color:${cat.color}">${cat.cnt}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(cat.cnt/maxCount)*100}%;background:linear-gradient(90deg,${cat.color}88,${cat.color})"></div></div>
     </div>`;
   }).join("");
 }
 
-// ── Day Goals Modal (Perfect Isolation Setup) ─────────
-function showDayGoals(y,m,d) {
+// ── Day Goals Modal ────────────────────────────
+function showDayGoals(y, m, d) {
   playSound('uiSwipe');
-  const dateKey=`${y}-${m}-${d}`;
-  const dayData=getTasksForDate(dateKey);
-  const dateStr=new Date(y,m,d).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+  const dateKey = `${y}-${m}-${d}`;
+  const activeTasks = getTasksForDate(y, m, d);
+  const comps = state.completions[dateKey] || {};
+  const dateStr = new Date(y, m, d).toLocaleDateString("en-US", {weekday:"long", month:"long", day:"numeric"});
 
-  document.getElementById("day-modal-date").textContent=dateStr;
+  document.getElementById("day-modal-date").textContent = dateStr;
 
-  const goalItems=[];
-  CATS.forEach(cat=>{
-    (dayData[cat.id] || []).forEach(g=>{
-      goalItems.push({cat,text:g.text,isDone:g.done});
-    });
-  });
-
-  if(goalItems.length===0) {
-    document.getElementById("day-modal-goals").innerHTML=
+  if (activeTasks.length === 0) {
+    document.getElementById("day-modal-goals").innerHTML =
       `<div style="text-align:center;color:rgba(255,255,255,0.25);font-size:13px;padding:20px 0">No goals set for this day</div>`;
   } else {
-    document.getElementById("day-modal-goals").innerHTML=goalItems.map(item=>`
-      <div class="day-goal-item" style="background:${item.cat.bg};border-color:${item.cat.color}30">
-        <div class="day-goal-dot" style="background:${item.isDone?item.cat.color:"rgba(255,255,255,0.15)"}"></div>
-        <span class="day-goal-text ${item.isDone?"day-goal-done":""}">${item.text}</span>
-        <span style="color:${item.cat.color};font-size:11px;font-weight:700">${item.cat.emoji}</span>
-      </div>
-    `).join("");
+    document.getElementById("day-modal-goals").innerHTML = activeTasks.map(t => {
+      const cat = CATS.find(c => c.id === t.catId);
+      const isDone = !!comps[t.id];
+      return `
+        <div class="day-goal-item" style="background:${cat.bg};border-color:${cat.color}30">
+          <div class="day-goal-dot" style="background:${isDone?cat.color:"rgba(255,255,255,0.15)"}"></div>
+          <span class="day-goal-text ${isDone?"day-goal-done":""}">${t.text}</span>
+          <span style="color:${cat.color};font-size:11px;font-weight:700">${cat.emoji}</span>
+        </div>
+      `;
+    }).join("");
   }
 
-  const modal=document.getElementById("day-modal");
+  const modal = document.getElementById("day-modal");
   modal.classList.add("open");
   setTimeout(()=>{
     document.querySelectorAll(".day-goal-item").forEach((el,i)=>{
       el.style.animationDelay=(i*0.07)+"s";
     });
-  },50);
+  }, 50);
 }
 
 function closeDayModal() {
@@ -974,7 +1114,7 @@ document.addEventListener("click",e=>{
   }
 });
 
-// ── Modal ──────────────────────────────────────
+// ── Modal & Goal Lifecycle ─────────────────────
 function openModal(catId) {
   state.activeModal=catId;
   state.expanded=catId;
@@ -1002,13 +1142,18 @@ document.getElementById("modal").addEventListener("click",e=>{
 });
 
 document.getElementById("modal-add-btn").addEventListener("click",()=>{
-  const val=escapeHTML(document.getElementById("modal-input").value.trim());
-  if(!val||!state.activeModal) return;
+  const val = escapeHTML(document.getElementById("modal-input").value.trim());
+  if(!val || !state.activeModal) return;
   
-  // Isolate add command cleanly into current date scope
-  const todayTasks = getTasksForDate(todayKey);
-  todayTasks[state.activeModal].push({id:Date.now(),text:val,done:false});
-  
+  // Creates a persistent task definition
+  state.tasks.push({
+    id: String(Date.now()),
+    catId: state.activeModal,
+    text: val,
+    createdAt: todayTime,
+    deletedAt: null
+  });
+
   playSound('click');
   closeModal();
   renderAll();
@@ -1019,131 +1164,37 @@ document.getElementById("modal-input").addEventListener("keydown",e=>{
   if(e.key==="Enter") document.getElementById("modal-add-btn").click();
 });
 
-// ── Date-Isolated Goal Interactions ──────────────────────────
-function toggleGoal(catId,goalId) {
-  const todayTasks = getTasksForDate(todayKey);
-  const goal = (todayTasks[catId] || []).find(g => String(g.id) === String(goalId));
-  if (!goal) return;
-
-  goal.done = !goal.done;
-
-  if(goal.done){
+function toggleGoal(catId, goalId) {
+  if (!state.completions[todayKey]) state.completions[todayKey] = {};
+  
+  const wasDone = !!state.completions[todayKey][goalId];
+  state.completions[todayKey][goalId] = !wasDone;
+  
+  if(!wasDone){
     const row=document.querySelector(`[data-cat="${catId}"][data-gid="${goalId}"]`);
     if(row){row.classList.add('just-checked');setTimeout(()=>row.classList.remove('just-checked'),450);}
     playSound('check');
     addXP(10);
   }
 
-  const total=totalGoals(todayKey), done=doneTodayCount(todayKey);
-  if(goal.done && total>0 && done===total) playSound('finish');
+  const activeToday = getActiveTasksToday();
+  const total = activeToday.length;
+  const done = activeToday.filter(t => state.completions[todayKey][t.id]).length;
+  if(!wasDone && total > 0 && done === total) playSound('finish');
 
   checkBadges();
   renderAll();
   saveData();
 }
 
-function deleteGoal(catId,goalId) {
-  const todayTasks = getTasksForDate(todayKey);
-  if(todayTasks[catId]) {
-    todayTasks[catId] = todayTasks[catId].filter(g => String(g.id) !== String(goalId));
+function deleteGoal(catId, goalId) {
+  // Soft Delete: Preserves historical calendar tracking
+  const task = state.tasks.find(t => t.id === goalId);
+  if (task) {
+    task.deletedAt = todayTime;
   }
   renderAll();
   saveData();
-}
-
-function toggleExpand(catId) {
-  const wasExpanded = state.expanded === catId;
-  state.expanded = wasExpanded ? null : catId;
-  saveData();
-
-  const card = document.querySelector(`.cat-card[data-catid="${catId}"]`);
-  if (!card) { renderHome(); return; }
-
-  const panel   = card.querySelector('.goals-list');
-  const chevron = card.querySelector('.cat-chevron');
-
-  if (wasExpanded) {
-    if (!panel) return;
-    panel.querySelectorAll('.goal-row').forEach(row => {
-      row.style.transition = 'opacity 0.15s ease';
-      row.style.opacity    = '0';
-    });
-
-    panel.style.height     = panel.scrollHeight + 'px';
-    panel.style.overflow   = 'hidden';
-    panel.offsetHeight;    
-
-    panel.style.transition    = 'height 0.36s cubic-bezier(0.4,0,0.2,1), opacity 0.28s ease, padding 0.36s cubic-bezier(0.4,0,0.2,1)';
-    panel.style.height        = '0';
-    panel.style.opacity       = '0';
-    panel.style.paddingTop    = '0';
-    panel.style.paddingBottom = '0';
-
-    if (chevron) chevron.style.transform = 'rotate(0deg)';
-
-    panel.addEventListener('transitionend', () => {
-      panel.style.display = 'none';
-    }, { once: true });
-
-  } else {
-    const cat      = CATS.find(c => c.id === catId);
-    const todayTasks = getTasksForDate(todayKey);
-    const catGoals = todayTasks[catId] || [];
-
-    const goalsHTML = catGoals.length === 0
-      ? `<div class="goal-empty">No goals yet — tap + to add</div>`
-      : catGoals.map((g, i) => {
-          return `<div class="goal-row" data-cat="${catId}" data-gid="${g.id}" onclick="toggleGoal('${catId}','${g.id}')" style="background:${g.done ? cat.color + '20' : 'rgba(255,255,255,0.04)'};border-color:${g.done ? cat.color + '60' : 'rgba(255,255,255,0.07)'}">
-            <div class="checkbox" style="border-color:${g.done ? cat.color : 'rgba(255,255,255,0.2)'};background:${g.done ? cat.color : 'transparent'}">${g.done ? '<span class="check-icon">✓</span>' : ''}</div>
-            <span class="goal-text" style="color:${g.done ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.88)'};text-decoration:${g.done ? 'line-through' : 'none'}">${g.text}</span>
-            <button class="del-btn" onclick="event.stopPropagation();deleteGoal('${catId}','${g.id}')">✕</button>
-          </div>`;
-        }).join('');
-
-    panel.innerHTML  = goalsHTML;
-    panel.style.cssText = [
-      'display:flex',
-      'flex-direction:column',
-      'gap:8px',
-      'height:0',
-      'opacity:0',
-      'overflow:hidden',
-      'padding:0 18px',
-      'box-sizing:border-box',
-      'border-top:1px solid rgba(255,255,255,0.06)',
-    ].join(';');
-
-    panel.querySelectorAll('.goal-row').forEach(row => {
-      row.style.opacity   = '0';
-      row.style.transform = 'translateY(8px)';
-    });
-
-    const PADDING_V = 28;
-    const fullH = panel.scrollHeight + PADDING_V;
-
-    if (chevron) chevron.style.transform = 'rotate(90deg)';
-
-    requestAnimationFrame(() => {
-      panel.style.transition    = 'height 0.4s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease, padding 0.4s cubic-bezier(0.4,0,0.2,1)';
-      panel.style.height        = fullH + 'px';
-      panel.style.opacity       = '1';
-      panel.style.paddingTop    = '12px';
-      panel.style.paddingBottom = '16px';
-
-      panel.querySelectorAll('.goal-row').forEach((row, i) => {
-        setTimeout(() => {
-          row.style.transition = 'opacity 0.25s ease, transform 0.28s cubic-bezier(0.34,1.4,0.64,1)';
-          row.style.opacity    = '1';
-          row.style.transform  = 'translateY(0)';
-        }, 80 + i * 55);
-      });
-
-      panel.addEventListener('transitionend', () => {
-        panel.style.height   = 'auto';
-        panel.style.overflow = 'visible';
-      }, { once: true });
-    });
-  }
 }
 
 // ── Navigation ─────────────────────────────────
@@ -1221,7 +1272,7 @@ window.addEventListener("resize",()=>{
   }
 });
 
-// ── Render all ─────────────────────────────────
+// ── Init ───────────────────────────────────────
 function renderAll(){
   renderHome();
   renderCalendar();
