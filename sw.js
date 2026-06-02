@@ -1,6 +1,6 @@
-const CACHE_NAME = 'evolve-cache-v17p';
+const CACHE_NAME = 'evolve-cache-v18p';
 
-const ASSETS_TO_CACHE = [
+'evolve-cache-v17p've-cache-v17p've-cache-v17p' ASSETS_TO_CACHE = [
   './',
   './index.html',
   './style.css',
