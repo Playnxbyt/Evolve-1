@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════
-   EVOLVE — Upgraded PWA Script
+   EVOLVE — Upgraded PWA Script (Fixed Date Isolation)
    Features: XP/Levels, Mood Tracking, Quick-Add FAB,
    Day-tap Goals, Monthly %, Analytics Dashboard,
    Particle BG, Badges, Progress Graph
@@ -62,26 +62,55 @@ const BADGES = [
 const MOOD_LABELS = {good:"Feeling good 😃",meh:"Feeling okay 😐",bad:"Feeling rough 😞"};
 const MOOD_EMOJI  = {good:"😃", meh:"😐", bad:"😞", "":""};
 
-// ── Default state ──────────────────────────────
+// ── Date helpers ───────────────────────────────
+const today    = new Date();
+const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+
+// ── Default Isolated State ─────────────────────
 let state = {
-  goals:    {fitness:[],mental:[],social:[],skills:[]},
-  done:     {},
-  monthData:{},
+  dailyTasks: {}, // Structure: { "YYYY-MM-DD": { fitness: [{id, text, done}], mental: []... } }
   expanded: null,
   activeModal: null,
-  calMonth: new Date().getMonth(),
-  calYear:  new Date().getFullYear(),
-  streak:   0,
+  calMonth: today.getMonth(),
+  calYear:  today.getFullYear(),
   xp:       0,
   badges:   [],
   moodLog:  {},   // dateKey → "good"|"meh"|"bad"
   fabOpen:  false,
 };
 
-// Load persisted data
+// Helper to safely initialize and pull a single day's tasks isolated from other dates
+function getTasksForDate(dateKey) {
+  if (!state.dailyTasks) state.dailyTasks = {};
+  if (!state.dailyTasks[dateKey]) {
+    state.dailyTasks[dateKey] = { fitness: [], mental: [], social: [], skills: [] };
+  }
+  return state.dailyTasks[dateKey];
+}
+
+// Load persisted data & transform old format dynamically if it exists
 const savedData = localStorage.getItem("evolveAppData");
 if (savedData) {
-  try { state = {...state, ...JSON.parse(savedData)}; } catch(e){}
+  try { 
+    const parsed = JSON.parse(savedData);
+    
+    // Fallback/Migration Logic: If converting from old structure to new date-isolated structure
+    if (parsed.goals && !parsed.dailyTasks) {
+      parsed.dailyTasks = {};
+      // Migrating old active goals straight into today's timeline safely
+      parsed.dailyTasks[todayKey] = { fitness: [], mental: [], social: [], skills: [] };
+      CATS.forEach(c => {
+        if (parsed.goals[c.id]) {
+          parsed.dailyTasks[todayKey][c.id] = parsed.goals[c.id].map(g => ({
+            id: g.id,
+            text: g.text,
+            done: !!(parsed.done && parsed.done[`${c.id}-${g.id}`])
+          }));
+        }
+      });
+    }
+    state = {...state, ...parsed}; 
+  } catch(e){}
 }
 
 function saveData() {
@@ -91,10 +120,6 @@ function saveData() {
 function escapeHTML(str) {
   return str.replace(/[&<>'"]/g, t => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":"&#39;",'"':'&quot;'}[t]));
 }
-
-// ── Date helpers ───────────────────────────────
-const today    = new Date();
-const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
 
 document.getElementById("date-label").textContent =
   today.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
@@ -114,20 +139,39 @@ function updateClock() {
 updateClock();
 setInterval(updateClock, 1000);
 
-// ── Counters ───────────────────────────────────
-function totalGoals()   { return CATS.reduce((s,c)=>s+state.goals[c.id].length,0); }
-function doneTodayCount(){ return Object.values(state.done).filter(Boolean).length; }
-function catDone(catId) { return state.goals[catId].filter(g=>state.done[`${catId}-${g.id}`]).length; }
-function getCatMonthCount(catId){ return Object.values(state.monthData).reduce((s,d)=>s+(d[catId]||0),0); }
-function getMonthTotal(){ return Object.values(state.monthData).reduce((s,d)=>s+Object.values(d).reduce((a,b)=>a+b,0),0); }
-function getDayScore(y,m,d){ const k=`${y}-${m}-${d}`; const day=state.monthData[k]; return day?Object.values(day).reduce((a,b)=>a+b,0):0; }
-function getAllTimeCompleted(){ return Object.values(state.monthData).reduce((s,d)=>s+Object.values(d).reduce((a,b)=>a+b,0),0); }
+// ── Contextual Score Metrics (Target Date Aware) ──
+function totalGoals(dateKey = todayKey)   { const day = getTasksForDate(dateKey); return CATS.reduce((s,c)=>s+(day[c.id] || []).length,0); }
+function doneTodayCount(dateKey = todayKey){ const day = getTasksForDate(dateKey); return CATS.reduce((s,c)=>(day[c.id] || []).filter(g=>g.done).length + s, 0); }
+function catDone(catId, dateKey = todayKey) { const day = getTasksForDate(dateKey); return (day[catId] || []).filter(g=>g.done).length; }
+
+function getCatMonthCount(catId) {
+  return Object.keys(state.dailyTasks || {}).reduce((s, k) => {
+    const day = state.dailyTasks[k];
+    return s + ((day && day[catId]) ? day[catId].filter(g => g.done).length : 0);
+  }, 0);
+}
+
+function getDayScore(y,m,d){ 
+  const k=`${y}-${m}-${d}`; 
+  const day = state.dailyTasks ? state.dailyTasks[k] : null;
+  if(!day) return 0;
+  return CATS.reduce((s,c)=>(day[c.id] || []).filter(g=>g.done).length + s, 0);
+}
+
+function getAllTimeCompleted(){ 
+  return Object.keys(state.dailyTasks || {}).reduce((s, k) => {
+    const day = state.dailyTasks[k];
+    return s + CATS.reduce((sum, c) => sum + ((day && day[c.id]) ? day[c.id].filter(g => g.done).length : 0), 0);
+  }, 0);
+}
 
 function calcStreak(){
   let streak=0, d=new Date(today);
   for(let i=0;i<90;i++){
     const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    if(state.monthData[k]&&Object.values(state.monthData[k]).some(v=>v>0)){streak++;d.setDate(d.getDate()-1);}
+    const day = state.dailyTasks ? state.dailyTasks[k] : null;
+    const hasCompletions = day && CATS.some(c => (day[c.id] || []).some(g => g.done));
+    if(hasCompletions){streak++;d.setDate(d.getDate()-1);}
     else break;
   }
   return streak;
@@ -194,17 +238,18 @@ function showLevelUpToast(ld) {
 function checkBadges() {
   const badges = state.badges || [];
   const streak = calcStreak();
-  const allDone = CATS.every(c=>catDone(c.id)>0&&state.goals[c.id].length>0);
-  const pct     = totalGoals()>0?Math.round((doneTodayCount()/totalGoals())*100):0;
+  const todayTasks = getTasksForDate(todayKey);
+  const allDone = CATS.every(c=>catDone(c.id, todayKey)>0 && (todayTasks[c.id] || []).length>0);
+  const pct     = totalGoals(todayKey)>0?Math.round((doneTodayCount(todayKey)/totalGoals(todayKey))*100):0;
   const total   = getAllTimeCompleted();
 
   const checks = [
-    {id:"first_goal",  cond: doneTodayCount()>=1},
+    {id:"first_goal",  cond: doneTodayCount(todayKey)>=1},
     {id:"streak3",     cond: streak>=3},
     {id:"streak7",     cond: streak>=7},
     {id:"streak30",    cond: streak>=30},
     {id:"all_cats",    cond: allDone},
-    {id:"perfect_day", cond: pct===100&&totalGoals()>0},
+    {id:"perfect_day", cond: pct===100&&totalGoals(todayKey)>0},
     {id:"century",     cond: total>=100},
   ];
 
@@ -226,15 +271,6 @@ function showBadgeToast(b) {
   toast.classList.add("show");
   playSound('advancement');
   setTimeout(()=>toast.classList.remove("show"),3500);
-}
-
-function renderBadges() {
-  const row = document.getElementById("badges-row");
-  if(!row) return;
-  row.innerHTML = BADGES.map(b=>{
-    const earned = (state.badges||[]).includes(b.id);
-    return `<div class="badge-chip ${earned?"earned":"locked"}">${b.icon} ${b.label}</div>`;
-  }).join("");
 }
 
 // ── Mood tracking ──────────────────────────────
@@ -278,81 +314,54 @@ function renderMoodHistory() {
   `).join("");
 }
 
-// ── Monthly completion % ───────────────────────
-// Formula: total completions this month ÷ (total daily tasks × days in month) × 100
-function calcMonthlyCompletion(y,m) {
-  const allGoals = CATS.reduce((s,c)=>s+state.goals[c.id].length,0);
-  if(allGoals===0) return 0;
-  const daysInMonth = new Date(y,m+1,0).getDate();
-  const totalPossible = allGoals * daysInMonth;
+function renderBadges() {
+  const row = document.getElementById("badges-row");
+  if(!row) return;
+  row.innerHTML = BADGES.map(b=>{
+    const earned = (state.badges||[]).includes(b.id);
+    return `<div class="badge-chip ${earned?"earned":"locked"}">${b.icon} ${b.label}</div>`;
+  }).join("");
+}
 
+// ── Date-Isolated Monthly Metrics ───────────────────────
+function calcMonthlyCompletion(y,m) {
+  const daysInMonth = new Date(y,m+1,0).getDate();
   const today2 = new Date();
   const isCurrentMonth = y===today2.getFullYear() && m===today2.getMonth();
   const daysToCount = isCurrentMonth ? today2.getDate() : daysInMonth;
 
+  let totalPossible = 0;
   let totalDone = 0;
+
   for(let d=1; d<=daysToCount; d++){
     const k = `${y}-${m}-${d}`;
-    const isToday2 = isCurrentMonth && d===today2.getDate();
-    if(isToday2){
-      totalDone += doneTodayCount();
-    } else {
-      const data = state.monthData[k];
-      if(data){
-        // Sum only per-goal keys (e.g. "fitness-123") to avoid double-counting category keys
-        totalDone += Object.keys(data).filter(key=>key.includes('-')).reduce((s,key)=>s+(data[key]||0),0);
-      }
+    const dayTasks = state.dailyTasks ? state.dailyTasks[k] : null;
+    if (dayTasks) {
+      CATS.forEach(c => {
+        const list = dayTasks[c.id] || [];
+        totalPossible += list.length;
+        totalDone += list.filter(g => g.done).length;
+      });
     }
   }
   return totalPossible>0 ? Math.round((totalDone/totalPossible)*100) : 0;
 }
 
-// Helper: completions for a specific category this month using full-month denominator
 function calcCatMonthlyPct(catId, y, m) {
-  const catGoals = state.goals[catId];
-  if(catGoals.length===0) return {pct:0, done:0, possible:0};
   const daysInMonth = new Date(y,m+1,0).getDate();
   const today2 = new Date();
   const isCurrentMonth = y===today2.getFullYear() && m===today2.getMonth();
   const daysToCount = isCurrentMonth ? today2.getDate() : daysInMonth;
-  const possible = catGoals.length * daysInMonth;
 
+  let possible = 0;
   let done = 0;
+
   for(let d=1; d<=daysToCount; d++){
     const k = `${y}-${m}-${d}`;
-    const isToday2 = isCurrentMonth && d===today2.getDate();
-    if(isToday2){
-      done += catGoals.filter(g=>state.done[`${catId}-${g.id}`]).length;
-    } else {
-      const data = state.monthData[k];
-      if(data){
-        catGoals.forEach(g=>{
-          const goalKey = `${catId}-${g.id}`;
-          if(data[goalKey]) done++;
-        });
-      }
-    }
-  }
-  return {pct: possible>0 ? Math.round((done/possible)*100) : 0, done, possible};
-}
-
-// Helper: completions for a specific goal this month using full-month denominator
-function calcGoalMonthlyPct(catId, goalId, y, m) {
-  const daysInMonth = new Date(y,m+1,0).getDate();
-  const today2 = new Date();
-  const isCurrentMonth = y===today2.getFullYear() && m===today2.getMonth();
-  const daysToCount = isCurrentMonth ? today2.getDate() : daysInMonth;
-  const possible = daysInMonth;
-
-  let done = 0;
-  for(let d=1; d<=daysToCount; d++){
-    const k = `${y}-${m}-${d}`;
-    const isToday2 = isCurrentMonth && d===today2.getDate();
-    if(isToday2){
-      if(state.done[`${catId}-${goalId}`]) done++;
-    } else {
-      const data = state.monthData[k];
-      if(data && data[`${catId}-${goalId}`]) done++;
+    const dayTasks = state.dailyTasks ? state.dailyTasks[k] : null;
+    if (dayTasks && dayTasks[catId]) {
+      possible += dayTasks[catId].length;
+      done += dayTasks[catId].filter(g=>g.done).length;
     }
   }
   return {pct: possible>0 ? Math.round((done/possible)*100) : 0, done, possible};
@@ -368,18 +377,15 @@ function renderMonthlyLineGraph() {
   const y=today.getFullYear(), m=today.getMonth();
   const daysInMonth=new Date(y,m+1,0).getDate();
   const daysToShow=today.getDate();
-  const total=totalGoals();
 
   if(badge) badge.textContent=MONTHS[m]+" "+y;
 
-  // Build data points
   const pts=[];
   for(let d=1;d<=daysToShow;d++){
     const pct=getDayPct(y,m,d);
     pts.push({d,pct});
   }
 
-  // Render footer — Days In = current day, Days Total = actual days in month
   if(footer){
     const avgPct=pts.length>0?Math.round(pts.reduce((s,p)=>s+p.pct,0)/pts.length):0;
     const monthPct=calcMonthlyCompletion(y,m);
@@ -391,7 +397,6 @@ function renderMonthlyLineGraph() {
     `;
   }
 
-  // DPR-aware canvas setup for crisp rendering on retina/mobile screens
   const dpr=window.devicePixelRatio||1;
   const cssW=canvas.parentElement.clientWidth||300;
   const cssH=160;
@@ -419,7 +424,6 @@ function renderMonthlyLineGraph() {
   const getX=d=>PAD.left+((d-1)/(daysToShow-1||1))*gW;
   const getY=pct=>PAD.top+gH-(pct/100)*gH;
 
-  // Grid lines
   [0,25,50,75,100].forEach(v=>{
     const yy=getY(v);
     ctx.beginPath();
@@ -438,7 +442,6 @@ function renderMonthlyLineGraph() {
     }
   });
 
-  // Vertical grid every 5 days
   for(let d=5;d<=daysToShow;d+=5){
     ctx.beginPath();
     ctx.strokeStyle="rgba(255,255,255,0.04)";
@@ -448,7 +451,6 @@ function renderMonthlyLineGraph() {
     ctx.stroke();
   }
 
-  // Smooth bezier path helper
   function buildPath(points){
     ctx.beginPath();
     ctx.moveTo(getX(points[0].d),getY(points[0].pct));
@@ -461,7 +463,6 @@ function renderMonthlyLineGraph() {
     }
   }
 
-  // Gradient area fill
   const areaGrad=ctx.createLinearGradient(0,PAD.top,0,PAD.top+gH);
   areaGrad.addColorStop(0,"rgba(167,139,250,0.28)");
   areaGrad.addColorStop(0.6,"rgba(167,139,250,0.08)");
@@ -473,7 +474,6 @@ function renderMonthlyLineGraph() {
   ctx.fillStyle=areaGrad;
   ctx.fill();
 
-  // Main line — gradient stroke
   const lineGrad=ctx.createLinearGradient(PAD.left,0,W-PAD.right,0);
   lineGrad.addColorStop(0,"#E879F9");
   lineGrad.addColorStop(0.45,"#A78BFA");
@@ -485,7 +485,6 @@ function renderMonthlyLineGraph() {
   ctx.lineCap="round";
   ctx.stroke();
 
-  // Small dots at each data point (non-zero only) — skip clutter when many days
   const skipDots=daysToShow>15;
   pts.forEach((p,i)=>{
     const isLast=i===pts.length-1;
@@ -502,14 +501,12 @@ function renderMonthlyLineGraph() {
     ctx.shadowBlur=0;
 
     if(isLast){
-      // White outer ring
       ctx.beginPath();
       ctx.arc(cx,cy,8,0,Math.PI*2);
       ctx.strokeStyle="rgba(232,121,249,0.3)";
       ctx.lineWidth=1.5;
       ctx.stroke();
 
-      // Label
       const labelY=cy<PAD.top+22?cy+20:cy-14;
       ctx.fillStyle="#fff";
       ctx.font=`800 11px 'DM Mono',monospace`;
@@ -521,7 +518,6 @@ function renderMonthlyLineGraph() {
     }
   });
 
-  // X-axis day labels
   ctx.fillStyle="rgba(255,255,255,0.28)";
   ctx.font=`600 9px 'DM Mono',monospace`;
   ctx.textAlign="center";
@@ -532,18 +528,11 @@ function renderMonthlyLineGraph() {
   if(daysToShow%step!==0) ctx.fillText(daysToShow,getX(daysToShow),H-6);
 }
 
-
 function getDayPct(y,m,d){
-  const total=totalGoals();
-  if(total===0) return 0;
   const k=`${y}-${m}-${d}`;
-  // For today use live done count
-  const isToday=d===today.getDate()&&m===today.getMonth()&&y===today.getFullYear();
-  if(isToday) return Math.round((doneTodayCount()/total)*100);
-  const data=state.monthData[k];
-  if(!data) return 0;
-  const score=Object.values(data).reduce((a,b)=>a+b,0);
-  return Math.min(100,Math.round((score/total)*100));
+  const total=totalGoals(k);
+  if(total===0) return 0;
+  return Math.min(100,Math.round((doneTodayCount(k)/total)*100));
 }
 
 function renderProgressGraph() {
@@ -585,9 +574,9 @@ function renderInsights() {
   if(wa) wa.innerHTML=`<span style="color:${worst.color}">${worst.emoji} ${worst.label}</span>`;
 }
 
-// ── Render Home ────────────────────────────────
+// ── Render Home Dashboard ───────────────────────
 function renderHome() {
-  const total=totalGoals(), done=doneTodayCount();
+  const total=totalGoals(todayKey), done=doneTodayCount(todayKey);
   const pct=total>0?Math.round((done/total)*100):0;
   const circ=2*Math.PI*56;
 
@@ -608,18 +597,19 @@ function renderHome() {
   // Pills
   const pills=document.getElementById("cat-pills");
   pills.innerHTML=CATS.map(c=>{
-    const d=catDone(c.id),total=state.goals[c.id].length;
-    const donePct=total>0?Math.round((d/total)*100):0;
+    const d=catDone(c.id, todayKey), t=(getTasksForDate(todayKey)[c.id] || []).length;
     return `<div class="cat-pill" style="background:${c.bg};color:${c.color};border-color:${c.color}30">
-      <span>${c.emoji}</span><span>${d}/${total}</span>
+      <span>${c.emoji}</span><span>${d}/${t}</span>
     </div>`;
   }).join("");
 
-  // Category cards
+  // Category cards running off isolated todayKey data
   const list=document.getElementById("cats-list");
+  const todayTasks = getTasksForDate(todayKey);
+  
   list.innerHTML=CATS.map(cat=>{
-    const catGoals=state.goals[cat.id];
-    const d=catDone(cat.id);
+    const catGoals=todayTasks[cat.id] || [];
+    const d=catDone(cat.id, todayKey);
     const cp=catGoals.length>0?Math.round((d/catGoals.length)*100):0;
     const isExp=state.expanded===cat.id;
     const doneBadge=d>0&&d===catGoals.length?`<span class="cat-done-badge" style="background:${cat.color};color:#000">✓ Done</span>`:"";
@@ -627,17 +617,14 @@ function renderHome() {
     const goalsHTML=catGoals.length===0
       ?`<div class="goal-empty">No goals yet — tap + to add</div>`
       :catGoals.map((g,i)=>{
-        const gk=`${cat.id}-${g.id}`;
-        const isDone=!!state.done[gk];
-        return `<div class="goal-row fade-up" data-cat="${cat.id}" data-gid="${g.id}" onclick="toggleGoal('${cat.id}','${g.id}')" style="background:${isDone?cat.color+"20":"rgba(255,255,255,0.04)"};border-color:${isDone?cat.color+"60":"rgba(255,255,255,0.07)"};animation-delay:${i*0.05}s">
-          <div class="checkbox" style="border-color:${isDone?cat.color:"rgba(255,255,255,0.2)"};background:${isDone?cat.color:"transparent"}">${isDone?'<span class="check-icon">✓</span>':""}</div>
-          <span class="goal-text" style="color:${isDone?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.88)"};text-decoration:${isDone?"line-through":"none"}">${g.text}</span>
+        return `<div class="goal-row fade-up" data-cat="${cat.id}" data-gid="${g.id}" onclick="toggleGoal('${cat.id}','${g.id}')" style="background:${g.done?cat.color+"20":"rgba(255,255,255,0.04)"};border-color:${g.done?cat.color+"60":"rgba(255,255,255,0.07)"};animation-delay:${i*0.05}s">
+          <div class="checkbox" style="border-color:${g.done?cat.color:"rgba(255,255,255,0.2)"};background:${g.done?cat.color:"transparent"}">${g.done?'<span class="check-icon">✓</span>':""}</div>
+          <span class="goal-text" style="color:${g.done?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.88)"};text-decoration:${g.done?"line-through":"none"}">${g.text}</span>
           <button class="del-btn" onclick="event.stopPropagation();deleteGoal('${cat.id}','${g.id}')">✕</button>
         </div>`;
       }).join("");
 
     const allDone = catGoals.length > 0 && d === catGoals.length;
-    // When expanded, render goals visible with correct styles; collapsed = hidden
     const panelStyle = isExp
       ? 'display:flex;flex-direction:column;gap:8px;padding:12px 18px 16px;box-sizing:border-box;border-top:1px solid rgba(255,255,255,0.06);overflow:visible'
       : 'display:none';
@@ -656,11 +643,9 @@ function renderHome() {
     </div>`;
   }).join("");
 
-  // Stats panel updates
   const stg=document.getElementById("stats-total-goals");
   const stp=document.getElementById("stats-today-pct");
   if(stg) stg.textContent=total;
-  // Middle card now shows monthly %
   if(stp){
     const monthPct=calcMonthlyCompletion(today.getFullYear(),today.getMonth());
     stp.textContent=`${monthPct}%`;
@@ -680,11 +665,12 @@ function renderCatStats() {
   const cards=document.getElementById("cat-stat-cards");
   if(!cards) return;
   const y=today.getFullYear(), m=today.getMonth();
+  const todayTasks = getTasksForDate(todayKey);
 
   cards.innerHTML=`<div class="cat-stat-section-label">Category Breakdown</div>`+CATS.map(cat=>{
-    const catGoals=state.goals[cat.id];
+    const catGoals=todayTasks[cat.id] || [];
     const {pct: monthRate, done: mc, possible: maxPossible} = calcCatMonthlyPct(cat.id, y, m);
-    const allTime=Object.values(state.monthData).reduce((s,d)=>s+(d[cat.id]||0),0);
+    const allTime=getCatMonthCount(cat.id);
     const streak=calcCatStreak(cat.id);
 
     return `<div class="cat-stat-card" style="background:${cat.bg};border-color:${cat.color}28">
@@ -709,7 +695,8 @@ function calcCatStreak(catId) {
   let streak=0, d=new Date(today);
   for(let i=0;i<90;i++){
     const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    if(state.monthData[k]&&(state.monthData[k][catId]||0)>0){streak++;d.setDate(d.getDate()-1);}
+    const day = state.dailyTasks ? state.dailyTasks[k] : null;
+    if(day && (day[catId] || []).some(g=>g.done)){streak++;d.setDate(d.getDate()-1);}
     else break;
   }
   return streak;
@@ -723,7 +710,6 @@ function toggleTaskCat(catId) {
 
   const isOpen = panel.classList.contains('expanded');
 
-  // Subtle card press
   if (card) {
     card.style.transition = "transform 0.18s cubic-bezier(0.34,1.56,0.64,1)";
     card.style.transform  = "scale(0.983)";
@@ -731,47 +717,35 @@ function toggleTaskCat(catId) {
   }
 
   if (isOpen) {
-    // ── Collapse ─────────────────────────────
     panel.classList.remove('expanded');
     if (chevron) chevron.style.transform = "rotate(0deg)";
-
-    // Fade rows out instantly, then collapse height
     panel.querySelectorAll(".task-goal-row").forEach(row => {
       row.style.transition = "opacity 0.15s ease";
       row.style.opacity    = "0";
     });
-
-    // Lock current height, then animate to 0
     panel.style.height  = panel.offsetHeight + "px";
     panel.style.opacity = "1";
-    // Force a reflow so the browser registers the locked height
-    panel.offsetHeight; // eslint-disable-line no-unused-expressions
+    panel.offsetHeight; 
     panel.style.transition = "height 0.38s cubic-bezier(0.4,0,0.2,1), opacity 0.3s ease, padding 0.38s cubic-bezier(0.4,0,0.2,1)";
     panel.style.height  = "0";
     panel.style.opacity = "0";
     panel.style.paddingTop    = "0";
     panel.style.paddingBottom = "0";
 
-    const onCollapseDone = () => {
+    panel.addEventListener("transitionend", () => {
       panel.style.display = "none";
-      // Reset inline styles so CSS takes over on next open
       panel.style.cssText = "display:none";
-    };
-    panel.addEventListener("transitionend", onCollapseDone, { once: true });
+    }, { once: true });
 
   } else {
-    // ── Expand ───────────────────────────────
-    // Pre-position goal rows so they're invisible but laid out
     panel.querySelectorAll(".task-goal-row").forEach(row => {
       row.style.transition = "none";
       row.style.opacity    = "0";
       row.style.transform  = "translateY(8px)";
     });
 
-    // Make visible off-screen-height to measure
     panel.style.cssText = "display:flex;flex-direction:column;gap:10px;height:0;opacity:0;padding:0 16px;overflow:hidden;border-top:1px solid rgba(255,255,255,0.06);box-sizing:border-box;will-change:height,opacity";
-    // Force reflow to get accurate scrollHeight
-    const fullH = panel.scrollHeight + 26; // +26 for top+bottom padding we'll add
+    const fullH = panel.scrollHeight + 26; 
 
     requestAnimationFrame(() => {
       panel.style.transition    = "height 0.42s cubic-bezier(0.4,0,0.2,1), opacity 0.32s ease, padding 0.42s cubic-bezier(0.4,0,0.2,1)";
@@ -782,7 +756,6 @@ function toggleTaskCat(catId) {
 
       if (chevron) chevron.style.transform = "rotate(180deg)";
 
-      // Stagger goal rows after container starts opening
       panel.querySelectorAll(".task-goal-row").forEach((row, i) => {
         setTimeout(() => {
           row.style.transition = "opacity 0.26s ease, transform 0.3s cubic-bezier(0.34,1.4,0.64,1)";
@@ -792,14 +765,14 @@ function toggleTaskCat(catId) {
       });
 
       panel.addEventListener("transitionend", () => {
-        panel.style.height = "auto"; // allow content to grow freely
+        panel.style.height = "auto"; 
         panel.classList.add("expanded");
       }, { once: true });
     });
   }
 }
 
-// ── Calendar ───────────────────────────────────
+// ── Calendar Heatmap Logic ────────────────────────
 function renderCalendar() {
   const y=state.calYear, m=state.calMonth;
   document.getElementById("month-name").textContent=`${MONTHS[m]} ${y}`;
@@ -815,7 +788,6 @@ function renderCalendar() {
     const isToday=d===today.getDate()&&m===today.getMonth()&&y===today.getFullYear();
     const isPast=new Date(y,m,d)<today;
 
-    // More vivid intensity steps
     let intensity=0;
     if(score>0){
       const ratio=score/maxScore;
@@ -836,40 +808,52 @@ function renderCalendar() {
   }
   grid.innerHTML=html;
 
-  // Monthly completion %
   const pct=calcMonthlyCompletion(y,m);
   const pctEl=document.getElementById("month-pct-num");
   const fillEl=document.getElementById("month-pct-fill");
   if(pctEl) pctEl.textContent=`${pct}%`;
   if(fillEl) fillEl.style.width=`${pct}%`;
 
-  // Per-task monthly completion % cards
-  const daysInMonth2=new Date(y,m+1,0).getDate();
-  const today2=new Date();
-  const isCurrentMonth2=y===today2.getFullYear()&&m===today2.getMonth();
-
   const taskStats=document.getElementById("task-month-stats");
   if(taskStats){
-    const hasAnyGoals=CATS.some(c=>state.goals[c.id].length>0);
+    // Determine context goals based on checking days dynamically
+    let historicalMonthGoalsMap = {};
+    for (let d = 1; d <= days; d++) {
+      const targetDayTasks = getTasksForDate(`${y}-${m}-${d}`);
+      CATS.forEach(c => {
+        if (!historicalMonthGoalsMap[c.id]) historicalMonthGoalsMap[c.id] = new Set();
+        (targetDayTasks[c.id] || []).forEach(g => historicalMonthGoalsMap[c.id].add(g.text));
+      });
+    }
+
+    const hasAnyGoals=CATS.some(c=>historicalMonthGoalsMap[c.id] && historicalMonthGoalsMap[c.id].size > 0);
     if(!hasAnyGoals){
-      taskStats.innerHTML=`<div style="text-align:center;padding:20px;color:rgba(255,255,255,0.2);font-size:13px">No goals yet — add some to track monthly progress</div>`;
+      taskStats.innerHTML=`<div style="text-align:center;padding:20px;color:rgba(255,255,255,0.2);font-size:13px">No goals found for this month</div>`;
     } else {
       taskStats.innerHTML=`<div class="task-month-header">Goal Completion This Month</div>`+
         CATS.map(cat=>{
-          const catGoals=state.goals[cat.id];
-          if(catGoals.length===0) return "";
+          const structuralUniqueTexts = Array.from(historicalMonthGoalsMap[cat.id] || []);
+          if(structuralUniqueTexts.length===0) return "";
 
-          // Category %: completions ÷ (goals × daysInMonth)
           const {pct: catPct} = calcCatMonthlyPct(cat.id, y, m);
           const expandId=`cat-expand-${cat.id}`;
 
-          const goalRows=catGoals.map(g=>{
-            // Per-goal %: completions ÷ daysInMonth
-            const {pct: gPct, done: gDone, possible: gPossible} = calcGoalMonthlyPct(cat.id, g.id, y, m);
+          const goalRows=structuralUniqueTexts.map(textKey=>{
+            let gPossible = 0;
+            let gDone = 0;
+            for(let d=1; d<=days; d++){
+              const dTasks = getTasksForDate(`${y}-${m}-${d}`)[cat.id] || [];
+              const foundG = dTasks.find(g => g.text === textKey);
+              if(foundG) {
+                gPossible++;
+                if(foundG.done) gDone++;
+              }
+            }
+            const gPct = gPossible > 0 ? Math.round((gDone / gPossible) * 100) : 0;
             return `<div class="task-goal-row">
               <div class="task-goal-left">
                 <div class="task-goal-dot" style="background:${cat.color}"></div>
-                <span class="task-goal-text">${g.text}</span>
+                <span class="task-goal-text">${textKey}</span>
               </div>
               <div class="task-goal-right">
                 <span class="task-goal-frac" style="color:rgba(255,255,255,0.35)">${gDone}/${gPossible}</span>
@@ -884,7 +868,7 @@ function renderCalendar() {
               <span class="task-month-emoji">${cat.emoji}</span>
               <div style="flex:1">
                 <div class="task-month-cat-name" style="color:${cat.color}">${cat.label}</div>
-                <div class="task-month-cat-sub">${catGoals.length} goal${catGoals.length!==1?"s":""}</div>
+                <div class="task-month-cat-sub">${structuralUniqueTexts.length} unique goal${structuralUniqueTexts.length!==1?"s":""}</div>
               </div>
               <div style="display:flex;align-items:center;gap:8px">
                 <span class="task-month-pct" style="color:${cat.color}">${catPct}%</span>
@@ -908,23 +892,19 @@ function renderCalendar() {
   }).join("");
 }
 
-// ── Day Goals Modal (tap calendar day) ─────────
+// ── Day Goals Modal (Perfect Isolation Setup) ─────────
 function showDayGoals(y,m,d) {
   playSound('uiSwipe');
   const dateKey=`${y}-${m}-${d}`;
-  const dayData=state.monthData[dateKey]||{};
+  const dayData=getTasksForDate(dateKey);
   const dateStr=new Date(y,m,d).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
 
   document.getElementById("day-modal-date").textContent=dateStr;
 
   const goalItems=[];
   CATS.forEach(cat=>{
-    state.goals[cat.id].forEach(g=>{
-      const gk=`${cat.id}-${g.id}`;
-      // For historical days, approximate from monthData; for today use done state
-      const isToday=d===today.getDate()&&m===today.getMonth()&&y===today.getFullYear();
-      const isDone=isToday?!!state.done[gk]:(dayData[cat.id]>0);
-      goalItems.push({cat,text:g.text,isDone});
+    (dayData[cat.id] || []).forEach(g=>{
+      goalItems.push({cat,text:g.text,isDone:g.done});
     });
   });
 
@@ -986,7 +966,6 @@ function fabSelectCat(catId) {
   openModal(catId);
 }
 
-// Close FAB on outside tap
 document.addEventListener("click",e=>{
   if(state.fabOpen&&!e.target.closest(".fab")&&!e.target.closest(".fab-menu")){
     state.fabOpen=false;
@@ -1025,7 +1004,11 @@ document.getElementById("modal").addEventListener("click",e=>{
 document.getElementById("modal-add-btn").addEventListener("click",()=>{
   const val=escapeHTML(document.getElementById("modal-input").value.trim());
   if(!val||!state.activeModal) return;
-  state.goals[state.activeModal].push({id:Date.now(),text:val});
+  
+  // Isolate add command cleanly into current date scope
+  const todayTasks = getTasksForDate(todayKey);
+  todayTasks[state.activeModal].push({id:Date.now(),text:val,done:false});
+  
   playSound('click');
   closeModal();
   renderAll();
@@ -1036,30 +1019,23 @@ document.getElementById("modal-input").addEventListener("keydown",e=>{
   if(e.key==="Enter") document.getElementById("modal-add-btn").click();
 });
 
-// ── Goal interactions ──────────────────────────
+// ── Date-Isolated Goal Interactions ──────────────────────────
 function toggleGoal(catId,goalId) {
-  const k=`${catId}-${goalId}`;
-  const wasChecked=!!state.done[k];
-  state.done[k]=!wasChecked;
-  if(state.done[k]){
+  const todayTasks = getTasksForDate(todayKey);
+  const goal = (todayTasks[catId] || []).find(g => String(g.id) === String(goalId));
+  if (!goal) return;
+
+  goal.done = !goal.done;
+
+  if(goal.done){
     const row=document.querySelector(`[data-cat="${catId}"][data-gid="${goalId}"]`);
     if(row){row.classList.add('just-checked');setTimeout(()=>row.classList.remove('just-checked'),450);}
     playSound('check');
+    addXP(10);
   }
 
-  const dayData=state.monthData[todayKey]||{};
-  // Keep category-level count (used by calendar heat-map)
-  dayData[catId]=Math.max(0,(dayData[catId]||0)+(state.done[k]?1:-1));
-  // Also store per-goal key so calendar stats can be accurate per goal
-  dayData[k] = state.done[k] ? 1 : 0;
-  state.monthData[todayKey]=dayData;
-
-  // XP gain
-  if(state.done[k]) addXP(10);
-
-  // Finish sound when all goals complete
-  const total=totalGoals(), done=doneTodayCount();
-  if(state.done[k] && total>0 && done===total) playSound('finish');
+  const total=totalGoals(todayKey), done=doneTodayCount(todayKey);
+  if(goal.done && total>0 && done===total) playSound('finish');
 
   checkBadges();
   renderAll();
@@ -1067,13 +1043,10 @@ function toggleGoal(catId,goalId) {
 }
 
 function deleteGoal(catId,goalId) {
-  const k=`${catId}-${goalId}`;
-  if(state.done[k]){
-    const dayData=state.monthData[todayKey];
-    if(dayData&&dayData[catId]) dayData[catId]=Math.max(0,dayData[catId]-1);
+  const todayTasks = getTasksForDate(todayKey);
+  if(todayTasks[catId]) {
+    todayTasks[catId] = todayTasks[catId].filter(g => String(g.id) !== String(goalId));
   }
-  state.goals[catId]=state.goals[catId].filter(g=>g.id!=goalId);
-  delete state.done[k];
   renderAll();
   saveData();
 }
@@ -1090,19 +1063,15 @@ function toggleExpand(catId) {
   const chevron = card.querySelector('.cat-chevron');
 
   if (wasExpanded) {
-    // ── Collapse ──────────────────────────────────────────────────────
     if (!panel) return;
-
-    // Fade goal rows out quickly
     panel.querySelectorAll('.goal-row').forEach(row => {
       row.style.transition = 'opacity 0.15s ease';
       row.style.opacity    = '0';
     });
 
-    // Lock current pixel height so the transition has a "from" value
     panel.style.height     = panel.scrollHeight + 'px';
     panel.style.overflow   = 'hidden';
-    panel.offsetHeight;    // force reflow
+    panel.offsetHeight;    
 
     panel.style.transition    = 'height 0.36s cubic-bezier(0.4,0,0.2,1), opacity 0.28s ease, padding 0.36s cubic-bezier(0.4,0,0.2,1)';
     panel.style.height        = '0';
@@ -1117,24 +1086,20 @@ function toggleExpand(catId) {
     }, { once: true });
 
   } else {
-    // ── Expand ────────────────────────────────────────────────────────
-    // Build goal rows HTML and inject into the hidden panel
     const cat      = CATS.find(c => c.id === catId);
-    const catGoals = state.goals[catId];
+    const todayTasks = getTasksForDate(todayKey);
+    const catGoals = todayTasks[catId] || [];
 
     const goalsHTML = catGoals.length === 0
       ? `<div class="goal-empty">No goals yet — tap + to add</div>`
       : catGoals.map((g, i) => {
-          const gk     = `${catId}-${g.id}`;
-          const isDone = !!state.done[gk];
-          return `<div class="goal-row" data-cat="${catId}" data-gid="${g.id}" onclick="toggleGoal('${catId}','${g.id}')" style="background:${isDone ? cat.color + '20' : 'rgba(255,255,255,0.04)'};border-color:${isDone ? cat.color + '60' : 'rgba(255,255,255,0.07)'}">
-            <div class="checkbox" style="border-color:${isDone ? cat.color : 'rgba(255,255,255,0.2)'};background:${isDone ? cat.color : 'transparent'}">${isDone ? '<span class="check-icon">✓</span>' : ''}</div>
-            <span class="goal-text" style="color:${isDone ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.88)'};text-decoration:${isDone ? 'line-through' : 'none'}">${g.text}</span>
+          return `<div class="goal-row" data-cat="${catId}" data-gid="${g.id}" onclick="toggleGoal('${catId}','${g.id}')" style="background:${g.done ? cat.color + '20' : 'rgba(255,255,255,0.04)'};border-color:${g.done ? cat.color + '60' : 'rgba(255,255,255,0.07)'}">
+            <div class="checkbox" style="border-color:${g.done ? cat.color : 'rgba(255,255,255,0.2)'};background:${g.done ? cat.color : 'transparent'}">${g.done ? '<span class="check-icon">✓</span>' : ''}</div>
+            <span class="goal-text" style="color:${g.done ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.88)'};text-decoration:${g.done ? 'line-through' : 'none'}">${g.text}</span>
             <button class="del-btn" onclick="event.stopPropagation();deleteGoal('${catId}','${g.id}')">✕</button>
           </div>`;
         }).join('');
 
-    // Reset panel to a collapsed-but-visible state so we can measure it
     panel.innerHTML  = goalsHTML;
     panel.style.cssText = [
       'display:flex',
@@ -1148,13 +1113,11 @@ function toggleExpand(catId) {
       'border-top:1px solid rgba(255,255,255,0.06)',
     ].join(';');
 
-    // Pre-hide goal rows for stagger
     panel.querySelectorAll('.goal-row').forEach(row => {
       row.style.opacity   = '0';
       row.style.transform = 'translateY(8px)';
     });
 
-    // Measure natural height (padding will be 12px top + 16px bottom = 28px)
     const PADDING_V = 28;
     const fullH = panel.scrollHeight + PADDING_V;
 
@@ -1167,7 +1130,6 @@ function toggleExpand(catId) {
       panel.style.paddingTop    = '12px';
       panel.style.paddingBottom = '16px';
 
-      // Stagger goal rows
       panel.querySelectorAll('.goal-row').forEach((row, i) => {
         setTimeout(() => {
           row.style.transition = 'opacity 0.25s ease, transform 0.28s cubic-bezier(0.34,1.4,0.64,1)';
@@ -1176,7 +1138,6 @@ function toggleExpand(catId) {
         }, 80 + i * 55);
       });
 
-      // Let height go auto after animation so content can grow freely
       panel.addEventListener('transitionend', () => {
         panel.style.height   = 'auto';
         panel.style.overflow = 'visible';
@@ -1254,7 +1215,6 @@ document.getElementById("next-month").addEventListener("click",()=>{
   draw();
 })();
 
-// Re-render canvas on resize
 window.addEventListener("resize",()=>{
   if(document.getElementById("view-stats").classList.contains("active")){
     renderMonthlyLineGraph();
