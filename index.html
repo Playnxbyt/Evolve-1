@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="theme-color" content="#071016"/>
+  <meta name="description" content="EVOLVE — a focused personal growth and daily consistency workspace."/>
+  <title>EVOLVE — Personal Growth</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="particle-canvas" aria-hidden="true"></canvas>
+  <div class="ambient ambient-a" aria-hidden="true"></div>
+  <div class="ambient ambient-b" aria-hidden="true"></div>
+
+  <div id="app">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 48" fill="none">
+            <path d="M20 2C20 2 15.2 8.6 15.2 14.4C15.2 19 20 21.5 20 21.5C20 21.5 24.8 19 24.8 14.4C24.8 8.6 20 2 20 2Z" fill="url(#brandGradient)"/>
+            <path d="M20 21.5C20 21.5 12.4 18.5 9.4 13.3C6.4 8.1 8.1 4.4 8.1 4.4C8.1 4.4 4.4 11.6 6.8 17.6C9.2 23.4 15.4 26.3 20 26.8Z" fill="url(#brandGradient)" opacity=".82"/>
+            <path d="M20 21.5C20 21.5 27.6 18.5 30.6 13.3C33.6 8.1 31.9 4.4 31.9 4.4C31.9 4.4 35.6 11.6 33.2 17.6C30.8 23.4 24.6 26.3 20 26.8Z" fill="url(#brandGradient)" opacity=".82"/>
+            <path d="M20 26.8C20 26.8 11 24.5 6.5 19.9C2.9 16.1 3.2 10.8 3.2 10.8C3.2 10.8-.2 18.9 3.8 24.8C7.5 30.4 15.5 33.2 20 33.6Z" fill="url(#brandGradient)" opacity=".64"/>
+            <path d="M20 26.8C20 26.8 29 24.5 33.5 19.9C37.1 16.1 36.8 10.8 36.8 10.8C36.8 10.8 40.2 18.9 36.2 24.8C32.5 30.4 24.5 33.2 20 33.6Z" fill="url(#brandGradient)" opacity=".64"/>
+            <path d="M20 33.6C20 33.6 16.5 39 17.4 43C18.1 46.2 20 47 20 47C20 47 21.9 46.2 22.6 43C23.5 39 20 33.6 20 33.6Z" fill="url(#brandGradient)" opacity=".48"/>
+            <path d="M20 3V46" stroke="#071016" stroke-width="1.6" stroke-linecap="round" opacity=".65"/>
+            <defs><linearGradient id="brandGradient" x1="4" y1="2" x2="35" y2="45" gradientUnits="userSpaceOnUse"><stop stop-color="#64E8D3"/><stop offset=".48" stop-color="#57B9F5"/><stop offset="1" stop-color="#9B8AFB"/></linearGradient></defs>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-name">EVOLVE</div>
+          <div class="brand-sub">PERSONAL GROWTH</div>
+        </div>
+      </div>
+
+      <nav class="side-nav">
+        <button class="nav-btn active" data-view="home"><span class="nav-icon">⌂</span><span class="nav-label">Today</span><span class="nav-dot" id="dot-home"></span></button>
+        <button class="nav-btn" data-view="month"><span class="nav-icon">◫</span><span class="nav-label">Calendar</span><span class="nav-dot" id="dot-month"></span></button>
+        <button class="nav-btn" data-view="stats"><span class="nav-icon">⌁</span><span class="nav-label">Analytics</span><span class="nav-dot" id="dot-stats"></span></button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-note">
+          <span class="note-kicker">SMALL STEPS</span>
+          <strong>Every day is a chance to become more intentional.</strong>
+        </div>
+        <div class="sidebar-date" id="sidebar-date"></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="mobile-topbar">
+        <div class="brand-compact"><span class="brand-mark small"><svg viewBox="0 0 40 48" fill="none"><path d="M20 2C20 2 15.2 8.6 15.2 14.4C15.2 19 20 21.5 20 21.5C20 21.5 24.8 19 24.8 14.4C24.8 8.6 20 2 20 2Z" fill="url(#mobileBrandGradient)"/><path d="M20 21.5C20 21.5 12.4 18.5 9.4 13.3C6.4 8.1 8.1 4.4 8.1 4.4C8.1 4.4 4.4 11.6 6.8 17.6C9.2 23.4 15.4 26.3 20 26.8Z" fill="url(#mobileBrandGradient)"/><path d="M20 21.5C20 21.5 27.6 18.5 30.6 13.3C33.6 8.1 31.9 4.4 31.9 4.4C31.9 4.4 35.6 11.6 33.2 17.6C30.8 23.4 24.6 26.3 20 26.8Z" fill="url(#mobileBrandGradient)" opacity=".8"/><defs><linearGradient id="mobileBrandGradient" x1="4" y1="2" x2="35" y2="45"><stop stop-color="#64E8D3"/><stop offset=".48" stop-color="#57B9F5"/><stop offset="1" stop-color="#9B8AFB"/></linearGradient></defs></svg></span><span>EVOLVE</span></div>
+        <div class="mobile-actions"><span id="mobile-time"></span><button class="icon-button" aria-label="Quick add" onclick="openFabMenu()">+</button></div>
+      </div>
+
+      <!-- TODAY -->
+      <section class="view active" id="view-home">
+        <header class="page-header">
+          <div>
+            <div class="eyebrow" id="date-label"></div>
+            <h1>Good <span id="greeting-part">evening</span>.</h1>
+            <p>Build the day you want by finishing what matters.</p>
+          </div>
+          <div class="header-actions">
+            <div class="time-block"><span class="time-caption">LOCAL TIME</span><strong id="time-label"></strong></div>
+            <div class="streak-badge"><span class="streak-flame">◉</span><strong id="streak-num">0</strong><span>DAY STREAK</span></div>
+          </div>
+        </header>
+
+        <div class="hero-grid">
+          <article class="panel progress-panel">
+            <div class="panel-topline"><span class="eyebrow">TODAY'S PROGRESS</span><span class="status-chip" id="progress-status">In progress</span></div>
+            <div class="progress-layout">
+              <div class="ring-wrap">
+                <svg class="progress-ring" viewBox="0 0 220 220" aria-label="Daily completion progress">
+                  <defs><linearGradient id="rg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#57B9F5"/><stop offset=".55" stop-color="#64E8D3"/><stop offset="1" stop-color="#9B8AFB"/></linearGradient></defs>
+                  <circle cx="110" cy="110" r="90" class="ring-track"/>
+                  <circle id="ring-progress" cx="110" cy="110" r="90" class="ring-value"/>
+                </svg>
+                <div class="ring-center"><strong id="ring-pct">0%</strong><span>COMPLETE</span></div>
+              </div>
+              <div class="progress-copy">
+                <div class="progress-number"><span id="today-done">0</span><small>/ <span id="today-total">0</span> tasks</small></div>
+                <h2 id="ring-sub">Start with one meaningful win.</h2>
+                <p id="progress-detail">Your daily completion rate updates as you work through your goals.</p>
+                <div class="cat-pills" id="cat-pills"></div>
+              </div>
+            </div>
+          </article>
+
+          <div class="hero-side">
+            <article class="panel focus-card">
+              <div class="panel-topline"><span class="eyebrow">DAILY FOCUS</span><span class="mini-arrow">→</span></div>
+              <strong id="focus-title">Make your first move.</strong>
+              <p id="focus-sub">Add a goal to start shaping today's list.</p>
+            </article>
+            <article class="panel xp-mini">
+              <div class="xp-mini-top"><span class="eyebrow">EVOLVE LEVEL</span><strong id="xp-level">Lv 1</strong></div>
+              <div class="xp-title" id="xp-title">Seedling</div>
+              <div class="xp-bar-wrap"><div class="xp-bar-fill" id="xp-bar-fill"></div></div>
+              <div class="xp-mini-foot"><span id="xp-mini-sub">0 XP</span><span>Next milestone</span></div>
+            </article>
+          </div>
+        </div>
+
+        <div class="content-grid">
+          <div class="primary-column">
+            <div class="section-heading"><div><span class="eyebrow">TODAY</span><h2>Your tasks</h2></div><button class="ghost-button" onclick="openFabMenu()">+ Add task</button></div>
+            <div class="cats" id="cats-list"></div>
+          </div>
+          <aside class="secondary-column">
+            <article class="panel mood-panel">
+              <div class="section-heading compact"><div><span class="eyebrow">CHECK IN</span><h3>How are you feeling?</h3></div></div>
+              <div class="mood-options" id="mood-bar">
+                <button class="mood-btn" data-mood="good" onclick="setMood('good')"><span>🙂</span><small>Good</small></button>
+                <button class="mood-btn" data-mood="meh" onclick="setMood('meh')"><span>😐</span><small>Okay</small></button>
+                <button class="mood-btn" data-mood="bad" onclick="setMood('bad')"><span>😞</span><small>Rough</small></button>
+              </div>
+              <div class="mood-set-label" id="mood-set-label"></div>
+            </article>
+            <article class="panel week-card">
+              <div class="section-heading compact"><div><span class="eyebrow">LAST 7 DAYS</span><h3>Consistency</h3></div><span class="trend-label" id="week-trend">—</span></div>
+              <div class="graph-wrap compact-graph" id="progress-graph"></div>
+              <div class="graph-days" id="graph-days"></div>
+            </article>
+            <article class="panel insight-card">
+              <div class="insight-icon">✦</div>
+              <div><span class="eyebrow">TODAY'S INSIGHT</span><p id="today-insight">Consistency becomes visible when you keep showing up.</p></div>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <!-- CALENDAR -->
+      <section class="view" id="view-month">
+        <header class="page-header simple">
+          <div><div class="eyebrow">YOUR JOURNEY, DAY BY DAY</div><h1>Calendar</h1><p>See your daily consistency and open any day for its task history.</p></div>
+          <button class="primary-button" onclick="goToday()">Today</button>
+        </header>
+        <div class="calendar-layout">
+          <article class="panel calendar-panel">
+            <div class="month-nav">
+              <button class="month-arrow" id="prev-month" aria-label="Previous month">‹</button>
+              <div><span class="eyebrow">TRACKING MONTH</span><strong class="month-name" id="month-name"></strong></div>
+              <button class="month-arrow" id="next-month" aria-label="Next month">›</button>
+            </div>
+            <div class="day-labels"><div class="day-label">SUN</div><div class="day-label">MON</div><div class="day-label">TUE</div><div class="day-label">WED</div><div class="day-label">THU</div><div class="day-label">FRI</div><div class="day-label">SAT</div></div>
+            <div class="cal-grid" id="cal-grid"></div>
+            <div class="legend"><span>LOW</span><div class="legend-box level-1"></div><div class="legend-box level-2"></div><div class="legend-box level-3"></div><div class="legend-box level-4"></div><span>HIGH</span></div>
+          </article>
+          <aside class="calendar-side">
+            <article class="panel month-summary">
+              <span class="eyebrow">MONTHLY COMPLETION</span><div class="month-pct-num" id="month-pct-num">0%</div><p>Completed task-days divided by possible task-days for this month.</p><div class="month-pct-bar"><div class="month-pct-fill" id="month-pct-fill"></div></div>
+            </article>
+            <article class="panel task-month-panel"><div id="task-month-stats"></div></article>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ANALYTICS -->
+      <section class="view" id="view-stats">
+        <header class="page-header simple">
+          <div><div class="eyebrow">MEASURE WHAT MATTERS</div><h1>Analytics</h1><p>Useful signals from your actual completion history — no vanity metrics.</p></div>
+          <div class="analytics-period">CURRENT MONTH</div>
+        </header>
+        <div class="stats-wrap">
+          <div class="kpi-row">
+            <article class="panel kpi-box"><span class="kpi-icon">◉</span><strong class="kpi-num" id="stats-streak">0</strong><span class="kpi-lbl">Current streak</span></article>
+            <article class="panel kpi-box"><span class="kpi-icon">◌</span><strong class="kpi-num" id="stats-today-pct">0%</strong><span class="kpi-lbl">Month completion</span></article>
+            <article class="panel kpi-box"><span class="kpi-icon">✓</span><strong class="kpi-num" id="stats-total-goals">0</strong><span class="kpi-lbl">Active today</span></article>
+            <article class="panel kpi-box"><span class="kpi-icon">↗</span><strong class="kpi-num" id="stats-completions">0</strong><span class="kpi-lbl">All-time completions</span></article>
+          </div>
+
+          <div class="analytics-grid">
+            <article class="panel graph-card monthly-line-card">
+              <div class="graph-title-row"><div><span class="eyebrow">TREND</span><h3>Monthly progress</h3></div><span class="graph-month-badge" id="graph-month-badge"></span></div>
+              <div class="monthly-line-wrap"><canvas id="monthly-line-chart" height="150"></canvas></div>
+              <div class="monthly-line-footer" id="monthly-line-footer"></div>
+            </article>
+            <article class="panel insight-panel">
+              <div class="section-heading compact"><div><span class="eyebrow">PATTERNS</span><h3>Your month</h3></div></div>
+              <div class="insight-row">
+                <div class="insight-card insight-best"><span class="insight-label">Most consistent</span><strong class="insight-val" id="most-consistent">—</strong></div>
+                <div class="insight-card insight-weak"><span class="insight-label">Needs attention</span><strong class="insight-val" id="weakest-area">—</strong></div>
+              </div>
+              <div class="mood-history-card"><span class="eyebrow">MOOD THIS WEEK</span><div class="mood-history-row" id="mood-history-row"></div></div>
+            </article>
+          </div>
+
+          <div class="analytics-bottom">
+            <article class="panel category-panel"><div id="cat-stat-cards"></div></article>
+            <article class="panel xp-card">
+              <div class="section-heading compact"><div><span class="eyebrow">JOURNEY</span><h3>Level & achievements</h3></div></div>
+              <div class="xp-progress-row"><div class="xp-level-big" id="xp-level-big">Lv 1</div><div class="xp-progress-wrap"><div class="xp-title-big" id="xp-title-big">Seedling</div><div class="xp-big-bar"><div class="xp-big-fill" id="xp-big-fill"></div></div><div class="xp-sub" id="xp-sub">0 XP</div></div></div>
+              <div class="badges-row" id="badges-row"></div>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div class="nav mobile-nav">
+      <button class="nav-btn active" data-view="home"><span class="nav-icon">⌂</span><span class="nav-label">Today</span><span class="nav-dot" id="dot-home-mobile"></span></button>
+      <button class="nav-btn" data-view="month"><span class="nav-icon">◫</span><span class="nav-label">Calendar</span><span class="nav-dot" id="dot-month-mobile"></span></button>
+      <button class="nav-btn" data-view="stats"><span class="nav-icon">⌁</span><span class="nav-label">Analytics</span><span class="nav-dot" id="dot-stats-mobile"></span></button>
+    </div>
+
+    <button class="fab" id="fab" onclick="openFabMenu()" aria-label="Add task"><span class="fab-icon" id="fab-icon">+</span></button>
+    <div class="fab-menu" id="fab-menu"><div class="fab-menu-inner" id="fab-menu-inner"></div></div>
+
+    <div class="modal-bg" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-cat-name">
+      <div class="modal-sheet">
+        <div class="modal-handle"></div>
+        <div class="modal-cat-row"><span class="modal-cat-emoji" id="modal-emoji"></span><div><div class="modal-label" id="modal-mode-label">NEW TASK</div><div class="modal-cat-name" id="modal-cat-name"></div></div><button class="modal-close" onclick="closeModal()" aria-label="Close">×</button></div>
+        <div class="form-grid">
+          <label class="field field-full"><span>Task</span><input class="modal-input" id="modal-input" maxlength="120" placeholder="e.g. 30 min workout, Read 10 pages..." autocomplete="off"></label>
+          <label class="field"><span>Category</span><select class="modal-select" id="modal-category"></select></label>
+          <label class="field"><span>Priority</span><select class="modal-select" id="modal-priority"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></label>
+          <label class="field field-full"><span>Start date</span><input class="modal-input" id="modal-date" type="date"></label>
+        </div>
+        <button class="modal-add-btn" id="modal-add-btn">Create task</button>
+      </div>
+    </div>
+
+    <div class="day-modal-bg" id="day-modal">
+      <div class="day-modal-sheet">
+        <div class="day-modal-drag-handle"></div>
+        <div class="day-modal-header"><div><span class="eyebrow">DAY SUMMARY</span><div class="day-modal-date" id="day-modal-date"></div></div><button class="day-modal-close" onclick="closeDayModal()">×</button></div>
+        <div class="day-modal-goals" id="day-modal-goals"></div>
+      </div>
+    </div>
+
+    <div class="levelup-toast" id="levelup-toast"><div class="levelup-inner"><div class="levelup-icon">✦</div><div class="levelup-text"><div class="levelup-title" id="levelup-title">Nice work</div><div class="levelup-sub" id="levelup-sub"></div></div></div></div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
